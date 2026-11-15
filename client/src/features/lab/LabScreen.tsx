@@ -446,7 +446,12 @@ export default function LabScreen({ catalog, onSaved, onBattle }: LabScreenProps
                   {socketLabels[part.socket]} · {part.cost} BM · {part.massKg} кг
                 </span>
                 <span className="part-description">{part.description}</span>
-                <span className="part-add">+ Добавить</span>
+                <span className="part-visibility-row">
+                  <span className={part.visual.visibility === "EXTERNAL" ? "part-visibility external" : "part-visibility internal"}>
+                    {part.visual.visibility === "EXTERNAL" ? "снаружи" : "внутри"}
+                  </span>
+                  <span className="part-add">+ Добавить</span>
+                </span>
               </button>
             ))}
           </div>
@@ -513,7 +518,10 @@ export default function LabScreen({ catalog, onSaved, onBattle }: LabScreenProps
               partsById={partsById}
               onRemove={removePart}
             />
-            <p className="hint">Нажми на орган на схеме, чтобы убрать его. Пустые кружки — свободные слоты.</p>
+            <p className="hint">
+              Внутренние органы видны только здесь. В бою отображаются внешние: ноги, крылья, шипы, хвосты,
+              глаза и оружие.
+            </p>
           </div>
 
           <div className="socket-pills">

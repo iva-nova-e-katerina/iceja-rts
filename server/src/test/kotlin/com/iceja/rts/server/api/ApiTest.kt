@@ -96,6 +96,28 @@ class ApiTest {
     }
 
     @Test
+    fun tankTemplateIsCreatedWithCurrentWeaponAndBehavior() = testApplication {
+        application { module() }
+        val response = client.post("/api/v1/creatures/from-template") {
+            header("X-Player-Id", "template-player")
+            contentType(ContentType.Application.Json)
+            setBody(
+                json.encodeToString(
+                    CreateCreatureFromTemplateRequest(
+                        templateName = "Tank",
+                        name = "Танк"
+                    )
+                )
+            )
+        }
+        assertEquals(HttpStatusCode.Created, response.status)
+        val creature = json.decodeFromString<CreatureView>(response.bodyAsText())
+        assertEquals("Танк", creature.genome.name)
+        assertEquals("BERSERK", creature.genome.behavior.presetId)
+        assertTrue(creature.genome.parts.any { it.partId == "ACIDSPIT" })
+    }
+
+    @Test
     fun invalidCreatureIsRejected() = testApplication {
         application { module() }
         val invalid = GenomeTemplates.all.first().copy(

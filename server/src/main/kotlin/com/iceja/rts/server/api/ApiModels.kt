@@ -4,7 +4,9 @@ import com.iceja.rts.server.catalog.BehaviorPresetDefinition
 import com.iceja.rts.server.catalog.ChassisDefinition
 import com.iceja.rts.server.catalog.MapDefinition
 import com.iceja.rts.server.catalog.PartDefinition
+import com.iceja.rts.server.catalog.PartShape
 import com.iceja.rts.server.catalog.Ruleset
+import com.iceja.rts.server.catalog.SocketType
 import com.iceja.rts.server.genome.DerivedStats
 import com.iceja.rts.server.genome.Genome
 import com.iceja.rts.server.genome.BehaviorGraph
@@ -75,6 +77,12 @@ data class CreateCreatureRequest(
 )
 
 @Serializable
+data class CreateCreatureFromTemplateRequest(
+    val templateName: String,
+    val name: String = ""
+)
+
+@Serializable
 data class CreatureView(
     val id: String,
     val genome: Genome,
@@ -130,13 +138,32 @@ data class MatchPlayerView(
 )
 
 @Serializable
+data class CreatureRenderPart(
+    val partId: String,
+    val socketId: SocketType,
+    val shape: PartShape,
+    val scale: Int,
+    val mirrored: Boolean
+)
+
+@Serializable
+data class CreatureRenderView(
+    val chassisId: String,
+    val sizeClass: String,
+    val bodyRadiusMm: Int,
+    val parts: List<CreatureRenderPart>
+)
+
+@Serializable
 data class GenomeSummary(
     val genomeId: Int,
     val name: String,
     val chassisId: String,
     val behaviorPresetId: String,
     val costBm: Int,
-    val radiusMm: Int
+    val radiusMm: Int,
+    val weapons: List<String>,
+    val render: CreatureRenderView
 )
 
 @Serializable

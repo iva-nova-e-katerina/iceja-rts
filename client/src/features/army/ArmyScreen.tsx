@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
-import { createArmy, createMatch, listArmies, listCreatures } from "../../api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createArmy, createCreatureFromTemplate, createMatch, listArmies, listCreatures } from "../../api";
 import { unlockBattleAudio } from "../../audio/battleAudio";
-import type { ArmyUnitInput, ArmyView, Catalog, CreatureView, MapDefinition } from "../../types";
+import type { ArmyUnitInput, ArmyView, Catalog, CreatureView, MapDefinition, TemplateView } from "../../types";
 
 interface ArmyScreenProps {
   catalog: Catalog;
@@ -16,7 +16,9 @@ export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps)
   const [mapId, setMapId] = useState(catalog.maps[0]?.id ?? "duel-arena");
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
+  const [addingTemplateId, setAddingTemplateId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const templateCreatures = useRef(new Map<string, CreatureView>());
 
   const creaturesById = useMemo(
     () => new Map(creatures.map((creature) => [creature.id, creature])),
@@ -50,13 +52,20 @@ export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps)
     };
   }, []);
 
-  function addCreature(creature: CreatureView) {
+  function canAfford(cost: number): string | null {
     if (units.length >= catalog.ruleset.maxCreaturesPerArmy) {
-      setMessage("В армии уже максимум существ");
-      return;
+      return "В армии уже максимум существ";
     }
-    if (totalCost + creature.stats.costBm > catalog.ruleset.armyBudgetBm) {
-      setMessage("Бюджет армии превышен");
+    if (totalCost + cost > catalog.ruleset.armyBudgetBm) {
+      return "Бюджет армии превышен";
+    }
+    return null;
+  }
+
+  function addCreature(creature: CreatureView) {
+    const problem = canAfford(creature.stats.costBm);
+    if (problem !== null) {
+      setMessage(problem);
       return;
     }
     const position = defaultPosition(units.length, map);
@@ -65,6 +74,32 @@ export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps)
       { creatureId: creature.id, x: position.x, y: position.y }
     ]);
     setMessage(null);
+  }
+
+  async function addTemplate(template: TemplateView) {
+    const problem = canAfford(template.validation.stats.costBm);
+    if (problem !== null) {
+      setMessage(problem);
+      return;
+    }
+    setAddingTemplateId(template.id);
+    setMessage(null);
+    try {
+      let creature = templateCreatures.current.get(template.id);
+      if (creature === undefined) {
+        creature = await createCreatureFromTemplate(
+          template.name,
+          templateLabels[template.name] ?? template.genome.name
+        );
+        templateCreatures.current.set(template.id, creature);
+        setCreatures((current) => [creature as CreatureView, ...current]);
+      }
+      addCreature(creature);
+    } catch (reason: unknown) {
+      setMessage(reason instanceof Error ? reason.message : "Не удалось добавить шаблон");
+    } finally {
+      setAddingTemplateId(null);
+    }
   }
 
   function removeUnit(index: number) {
@@ -122,8 +157,37 @@ export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps)
       <aside className="panel collection-panel">
         <div className="panel-header">
           <h2>Коллекция</h2>
-          <span className="muted">{creatures.length} существ</span>
+          <span className="muted">{creatures.length} сохранено</span>
         </div>
+        <div className="template-army-section">
+          <div className="panel-header compact">
+            <h3>Шаблоны</h3>
+            <span className="muted">1 клик в армию</span>
+          </div>
+          <div className="template-army-list">
+            {catalog.templates.map((template) => {
+              const cost = template.validation.stats.costBm;
+              const problem = canAfford(cost);
+              return (
+                <div key={template.id} className="template-army-card">
+                  <div>
+                    <strong>{templateLabels[template.name] ?? template.name}</strong>
+                    <span className="muted">{cost} BM</span>
+                  </div>
+                  <button
+                    className="primary small"
+                    disabled={problem !== null || addingTemplateId !== null}
+                    onClick={() => void addTemplate(template)}
+                    title={problem ?? `Добавить «${templateLabels[template.name] ?? template.name}» в армию`}
+                  >
+                    {addingTemplateId === template.id ? "…" : "В армию"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <h3 className="collection-subtitle">Мои существа</h3>
         {creatures.length === 0 && (
           <div className="empty-state">
             <p>Пока нет сохранённых существ.</p>
@@ -138,7 +202,7 @@ export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps)
             return (
               <div key={creature.id} className="creature-card">
                 <div>
-                  <strong>{creature.genome.name}</strong>
+                  <strong>{displayCreatureName(creature.genome.name)}</strong>
                   <span className="muted">
                     {catalog.chassis.find((item) => item.id === creature.genome.chassisId)?.name ?? creature.genome.chassisId} ·{" "}
                     {catalog.behaviorPresets.find((item) => item.id === creature.genome.behavior.presetId)?.name ??
@@ -214,7 +278,7 @@ export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps)
                 return (
                   <div key={`${unit.creatureId}-${index}`} className="unit-row">
                     <span>
-                      {creature?.genome.name ?? "Неизвестно"} · {creature?.stats.costBm ?? 0} BM
+                      {displayCreatureName(creature?.genome.name ?? "Неизвестно")} · {creature?.stats.costBm ?? 0} BM
                     </span>
                     <button className="icon-button" onClick={() => removeUnit(index)} title="Убрать">
                       ×
@@ -335,6 +399,23 @@ function ArmyMap({
     </div>
   );
 }
+
+function displayCreatureName(name: string): string {
+  return templateLabels[name] ?? name;
+}
+
+const templateLabels: Record<string, string> = {
+  Scout: "Разведчик",
+  Brawler: "Боец",
+  Spitter: "Плеватель",
+  Tank: "Танк",
+  Swarm: "Рой",
+  Artillery: "Артиллерия",
+  Healer: "Лекарь",
+  Burrower: "Копатель",
+  Flyer: "Летун",
+  Harvester: "Сборщик"
+};
 
 function defaultPosition(index: number, map: MapDefinition): { x: number; y: number } {
   const column = index % 6;

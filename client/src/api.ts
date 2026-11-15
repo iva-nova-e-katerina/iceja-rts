@@ -97,6 +97,13 @@ export async function createCreature(genome: Genome): Promise<CreatureView> {
   });
 }
 
+export async function createCreatureFromTemplate(templateName: string, name: string): Promise<CreatureView> {
+  return request<CreatureView>("/api/v1/creatures/from-template", {
+    method: "POST",
+    body: JSON.stringify({ templateName, name })
+  });
+}
+
 export async function listCreatures(): Promise<CreatureView[]> {
   return request<CreatureView[]>("/api/v1/creatures");
 }

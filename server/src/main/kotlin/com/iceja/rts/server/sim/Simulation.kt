@@ -205,6 +205,7 @@ class Simulation(
                 creature.desiredY = y
                 creature.fleeFromX = x
                 creature.fleeFromY = y
+                creature.angle = if (player.playerId == 0) 0 else 32_768
                 creatures += creature
                 emit(
                     type = "SPAWN",
@@ -302,6 +303,7 @@ class Simulation(
             }
 
             if (targetPoint != null && isInAttackRange(creature, goal)) {
+                creature.angle = AngleMath.of(targetPoint.x - creature.x, targetPoint.y - creature.y)
                 creature.state = EntityState.ATTACKING
                 return@forEach
             }
@@ -320,6 +322,7 @@ class Simulation(
                 speed
             )
             if (step.x != creature.x || step.y != creature.y) {
+                creature.angle = AngleMath.of(step.x - creature.x, step.y - creature.y)
                 creature.x = step.x
                 creature.y = step.y
                 creature.state = EntityState.MOVING
@@ -493,6 +496,7 @@ class Simulation(
         targetRadius: Int,
         targetIsHive: Boolean
     ) {
+        source.angle = AngleMath.of(targetX - source.x, targetY - source.y)
         val evasion = if (targetIsHive) 0 else creatureById(targetId)?.stats?.evasion ?: 0
         val accuracy = weapon.accuracy + source.stats.accuracyBonus
         val hitChance = (accuracy * 10_000 / (accuracy + evasion).coerceAtLeast(1)).coerceIn(500, 9_500)

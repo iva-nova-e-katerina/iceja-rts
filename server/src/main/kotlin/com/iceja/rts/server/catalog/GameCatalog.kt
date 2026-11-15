@@ -138,7 +138,7 @@ object GameCatalog {
         )
     )
 
-    val parts: List<PartDefinition> = listOf(
+    private val baseParts: List<PartDefinition> = listOf(
         PartDefinition(
             id = "GANGLION",
             name = "Ганглий",
@@ -817,6 +817,52 @@ object GameCatalog {
             description = "Привлекает нейтральных существ"
         )
     )
+
+    val parts: List<PartDefinition> = baseParts.map { part ->
+        part.copy(visual = visualFor(part.id))
+    }
+
+    private fun visualFor(partId: String): PartVisual = when (partId) {
+        "GANGLION", "CEREBRAL", "HIVEMIND", "HEART", "METABOLIC", "HEMOPUMP", "NEURALTRUNK",
+        "TARGETING", "REGEN", "ANTITOXIN", "NECTARCROP", "OVIPOSITOR", "SYMBIOTE",
+        "BURROWGLAND", "ADRENAL", "NEUROLINK" ->
+            PartVisual(PartVisibility.INTERNAL, PartShape.ORB)
+        "SCUTTLER", "CLAWED", "SPRINT", "SPIDERLEGS" ->
+            PartVisual(PartVisibility.EXTERNAL, PartShape.LEG)
+        "SLUGFOOT" -> PartVisual(PartVisibility.EXTERNAL, PartShape.LEG, 85)
+        "PADDLE" -> PartVisual(PartVisibility.EXTERNAL, PartShape.FIN)
+        "WINGS" -> PartVisual(PartVisibility.EXTERNAL, PartShape.WING, 135)
+        "BURROWCLAW" -> PartVisual(PartVisibility.EXTERNAL, PartShape.BURROW_CLAW, 120)
+        "FACET" -> PartVisual(PartVisibility.EXTERNAL, PartShape.EYE, 70)
+        "COMPOUND" -> PartVisual(PartVisibility.EXTERNAL, PartShape.EYE, 90)
+        "THERMAL" -> PartVisual(PartVisibility.EXTERNAL, PartShape.EYE, 70)
+        "ECHO" -> PartVisual(PartVisibility.EXTERNAL, PartShape.EYE, 80)
+        "CHEMO" -> PartVisual(PartVisibility.EXTERNAL, PartShape.CHEMO, 65)
+        "VIBRO" -> PartVisual(PartVisibility.EXTERNAL, PartShape.WHISKER, 75)
+        "MANDIBLE" -> PartVisual(PartVisibility.EXTERNAL, PartShape.FANG, 80)
+        "CLAWS" -> PartVisual(PartVisibility.EXTERNAL, PartShape.CLAW, 90)
+        "SPIKETAIL" -> PartVisual(PartVisibility.EXTERNAL, PartShape.TAIL, 125)
+        "BONEHAMMER" -> PartVisual(PartVisibility.EXTERNAL, PartShape.HAMMER, 135)
+        "ACIDGLAND" -> PartVisual(PartVisibility.EXTERNAL, PartShape.GLAND, 80)
+        "VENOMFANG" -> PartVisual(PartVisibility.EXTERNAL, PartShape.FANG, 85)
+        "ELECTRO" -> PartVisual(PartVisibility.EXTERNAL, PartShape.ORB, 95)
+        "SPINE" -> PartVisual(PartVisibility.EXTERNAL, PartShape.SPIKE, 105)
+        "ACIDSPIT" -> PartVisual(PartVisibility.EXTERNAL, PartShape.NOZZLE, 80)
+        "SPOREMORTAR" -> PartVisual(PartVisibility.EXTERNAL, PartShape.MORTAR, 145)
+        "ELECTROARC" -> PartVisual(PartVisibility.EXTERNAL, PartShape.ORB, 105)
+        "HARPOON" -> PartVisual(PartVisibility.EXTERNAL, PartShape.HARPOON, 110)
+        "CHITIN" -> PartVisual(PartVisibility.EXTERNAL, PartShape.PLATE, 100)
+        "BONEPLATE" -> PartVisual(PartVisibility.EXTERNAL, PartShape.PLATE, 135)
+        "MUCUS" -> PartVisual(PartVisibility.EXTERNAL, PartShape.SLIME, 100)
+        "CAMO" -> PartVisual(PartVisibility.EXTERNAL, PartShape.SKIN, 100)
+        "THERMOVENT" -> PartVisual(PartVisibility.EXTERNAL, PartShape.VENT, 75)
+        "SLIMEARMOR" -> PartVisual(PartVisibility.EXTERNAL, PartShape.SLIME, 115)
+        "PHEROMONE" -> PartVisual(PartVisibility.EXTERNAL, PartShape.GLAND, 70)
+        "SCAVENGER" -> PartVisual(PartVisibility.EXTERNAL, PartShape.MOUTH, 80)
+        "STICKY" -> PartVisual(PartVisibility.EXTERNAL, PartShape.SLIME, 65)
+        "LURE" -> PartVisual(PartVisibility.EXTERNAL, PartShape.LURE, 80)
+        else -> PartVisual(PartVisibility.INTERNAL, PartShape.ORB)
+    }
 
     val behaviorPresets: List<BehaviorPresetDefinition> = listOf(
         BehaviorPresetDefinition(

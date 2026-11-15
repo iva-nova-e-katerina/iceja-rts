@@ -67,10 +67,11 @@ object GenomeTemplates {
                 part("SLUGFOOT", SocketType.UNDER),
                 part("CLAWED", SocketType.LEFT, mirrored = true),
                 part("FACET", SocketType.FRONT),
+                part("ACIDSPIT", SocketType.FRONT),
                 part("CHITIN", SocketType.TOP),
                 part("BONEPLATE", SocketType.TOP)
             ),
-            behavior = BehaviorSpec(presetId = "DEFENDER"),
+            behavior = BehaviorSpec(presetId = "BERSERK"),
             catalogVersion = GameCatalog.CATALOG_VERSION
         ),
         Genome(

@@ -260,6 +260,7 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
               setSelectedId(entityId);
             }}
           />
+          <div className="battle-camera-hint">Колесо — зум · перетаскивание — камера · клик — инспектор</div>
           {snapshot === null && (
             <div className="battle-loading">
               <div className="spinner" />
@@ -293,6 +294,21 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
                   <Stat label="Узел" value={selectedEntity.nodeId || "по пресету"} />
                   <Stat label="Цель" value={selectedEntity.targetId === 0 ? "нет" : `#${selectedEntity.targetId}`} />
                   <Stat label="Состояние" value={stateLabel(selectedEntity.state)} />
+                </div>
+                <p className="muted small-text">
+                  Оружие: {selectedGenome === undefined || selectedGenome.weapons.length === 0
+                    ? "нет"
+                    : selectedGenome.weapons
+                        .map((partId) => catalog.parts.find((definition) => definition.id === partId)?.name ?? partId)
+                        .join(", ")}
+                </p>
+                <p className="muted small-text">На карте видны только внешние органы.</p>
+                <div className="inspector-parts">
+                  {selectedGenome?.render.parts.map((part, index) => (
+                    <span key={`${part.partId}-${index}`} className="inspector-part">
+                      {catalog.parts.find((definition) => definition.id === part.partId)?.name ?? part.partId}
+                    </span>
+                  ))}
                 </div>
               </div>
             )}

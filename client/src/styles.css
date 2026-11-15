@@ -1891,3 +1891,110 @@ label select,
   color: #ffd78f;
   font-size: 11px;
 }
+
+.part-visibility-row {
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.part-visibility {
+  padding: 1px 5px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.part-visibility.external {
+  background: #123329;
+  color: #7ff0ce;
+}
+
+.part-visibility.internal {
+  background: #1a2433;
+  color: #91a9d6;
+}
+
+.inspector-parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.inspector-part {
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #0a1316;
+  color: #b9d0d4;
+  font-size: 9px;
+}
+
+.battle-camera-hint {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 2;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(7, 11, 13, 0.78);
+  color: var(--muted);
+  font-size: 10px;
+  pointer-events: none;
+}
+
+.template-army-section {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.panel-header.compact {
+  margin-bottom: 2px;
+}
+
+.collection-subtitle {
+  margin: 12px 0 6px;
+}
+
+.template-army-list {
+  display: grid;
+  gap: 4px;
+}
+
+.template-army-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0a1316;
+}
+
+.template-army-card > div {
+  display: grid;
+  min-width: 0;
+}
+
+.template-army-card strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.template-army-card .muted {
+  font-size: 10px;
+}
+
+.template-army-card .primary.small {
+  padding: 5px 8px;
+  font-size: 10px;
+  flex-shrink: 0;
+}

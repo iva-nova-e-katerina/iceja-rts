@@ -8,6 +8,7 @@ import com.iceja.rts.server.api.MatchStartPayload
 import com.iceja.rts.server.api.MatchView
 import com.iceja.rts.server.api.ReplayView
 import com.iceja.rts.server.api.WsMessage
+import com.iceja.rts.server.catalog.GameCatalog
 import com.iceja.rts.server.genome.GenomeAnalyzer
 import com.iceja.rts.server.sim.SimEvent
 import com.iceja.rts.server.sim.Simulation
@@ -160,7 +161,13 @@ class MatchSession(
                 chassisId = genome.chassisId,
                 behaviorPresetId = genome.behavior.presetId,
                 costBm = analysis.stats.costBm,
-                radiusMm = analysis.stats.radiusMm
+                radiusMm = analysis.stats.radiusMm,
+                weapons = genome.parts.mapNotNull { placement ->
+                    GameCatalog.partsById[placement.partId]
+                        ?.takeIf { part -> part.weapon != null }
+                        ?.id
+                },
+                render = GenomeRenderFactory.build(genome, analysis.stats)
             )
         }
 

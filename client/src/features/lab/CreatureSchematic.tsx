@@ -34,9 +34,14 @@ export default function CreatureSchematic({
   onRemove
 }: CreatureSchematicProps) {
   const placementsBySocket = new Map<string, Array<{ index: number; part: PartDefinition; mirrored: boolean }>>();
+  const internalPlacements: Array<{ index: number; part: PartDefinition }> = [];
   genome.parts.forEach((placement, index) => {
     const part = partsById.get(placement.partId);
     if (part === undefined) {
+      return;
+    }
+    if (part.visual.visibility === "INTERNAL") {
+      internalPlacements.push({ index, part });
       return;
     }
     const list = placementsBySocket.get(placement.socketId) ?? [];
@@ -59,6 +64,27 @@ export default function CreatureSchematic({
       <circle cx="0" cy="0" r="132" fill="none" stroke="#1c343a" strokeWidth="1" strokeDasharray="4 8" />
       <circle cx="0" cy="0" r="96" fill="url(#body-glow)" stroke="#2d5962" strokeWidth="2" />
       <path d="M -26 -10 L 0 -34 L 26 -10 L 0 14 Z" fill="#1a3b42" stroke="#39e6b0" strokeWidth="1.5" />
+
+      <circle cx="0" cy="0" r="42" fill="none" stroke="#2b4a52" strokeWidth="1" strokeDasharray="3 5" />
+      <text x="0" y="58" textAnchor="middle" fontSize="7" fill="#527078" fontFamily="monospace">
+        внутренние
+      </text>
+
+      {internalPlacements.map((placement, order) => {
+        const angle = (order / Math.max(1, internalPlacements.length)) * Math.PI * 2;
+        const x = Math.cos(angle) * 28;
+        const y = Math.sin(angle) * 28;
+        return (
+          <g
+            key={`internal-${placement.index}-${placement.part.id}`}
+            className="schematic-part internal"
+            onClick={() => onRemove(placement.index)}
+          >
+            <title>{`${placement.part.name} — внутренний орган, в бою не виден`}</title>
+            <circle cx={x} cy={y} r="6" fill={categoryColor[placement.part.category]} opacity="0.55" stroke="#071012" strokeWidth="1" />
+          </g>
+        );
+      })}
 
       {chassis?.sockets.map((socket) => {
         const position = socketPositions[socket.type];
@@ -106,7 +132,7 @@ export default function CreatureSchematic({
               className="schematic-part"
               onClick={() => onRemove(placement.index)}
             >
-              <title>{`${placement.part.name} — click to remove`}</title>
+              <title>{`${placement.part.name} — внешний орган, виден в бою`}</title>
               <PartShape part={placement.part} x={x} y={y} />
               {placement.mirrored && <PartShape part={placement.part} x={-x} y={y} muted />}
             </g>

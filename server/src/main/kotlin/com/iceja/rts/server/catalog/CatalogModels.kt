@@ -35,6 +35,46 @@ enum class DamageType {
 }
 
 @Serializable
+enum class PartVisibility {
+    INTERNAL,
+    EXTERNAL
+}
+
+@Serializable
+enum class PartShape {
+    LEG,
+    WING,
+    CLAW,
+    FANG,
+    SPIKE,
+    TAIL,
+    HAMMER,
+    EYE,
+    CHEMO,
+    WHISKER,
+    ORB,
+    PLATE,
+    NOZZLE,
+    MOUTH,
+    GLAND,
+    LURE,
+    VENT,
+    FIN,
+    SLIME,
+    SKIN,
+    HARPOON,
+    MORTAR,
+    BURROW_CLAW
+}
+
+@Serializable
+data class PartVisual(
+    val visibility: PartVisibility,
+    val shape: PartShape,
+    val scale: Int = 100
+)
+
+@Serializable
 enum class PartFlag {
     BRAIN,
     HEART,
@@ -140,6 +180,7 @@ data class PartDefinition(
     val turnMultiplierPct: Int = 100,
     val energyDrainMilliPerSecond: Int = 0,
     val flags: Set<PartFlag> = emptySet(),
+    val visual: PartVisual = PartVisual(PartVisibility.INTERNAL, PartShape.ORB),
     val description: String = ""
 )
 

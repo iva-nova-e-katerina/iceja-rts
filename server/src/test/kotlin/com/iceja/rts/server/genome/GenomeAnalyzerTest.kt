@@ -20,6 +20,21 @@ class GenomeAnalyzerTest {
     }
 
     @Test
+    fun allTemplatesHaveSensors() {
+        GenomeTemplates.all.forEach { genome ->
+            val parts = genome.parts.mapNotNull { GameCatalog.partsById[it.partId] }
+            assertTrue(parts.any { it.visionRangeMm > 0 }, "${genome.name} must have a sensor")
+        }
+    }
+
+    @Test
+    fun tankTemplateHasRangedWeapon() {
+        val tank = GenomeTemplates.all.first { it.name == "Tank" }
+        val parts = tank.parts.mapNotNull { GameCatalog.partsById[it.partId] }
+        assertTrue(parts.any { it.weapon?.ranged == true })
+    }
+
+    @Test
     fun brainIsRequired() {
         val genome = Genome(
             chassisId = "CRAWLER",

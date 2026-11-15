@@ -4,6 +4,7 @@ import com.iceja.rts.server.HealthResponse
 import com.iceja.rts.server.auth.TicketService
 import com.iceja.rts.server.catalog.GameCatalog
 import com.iceja.rts.server.genome.GenomeAnalyzer
+import com.iceja.rts.server.genome.GenomeTemplates
 import com.iceja.rts.server.genome.PresetGraphs
 import com.iceja.rts.server.genome.UpgradeRules
 import com.iceja.rts.server.match.MatchService
@@ -100,6 +101,27 @@ fun Application.configureApi(
                 }
                 val ownerId = playerId(call)
                 val record = creatureRepository.create(ownerId, request.genome, analysis.toValidationResult())
+                call.respond(HttpStatusCode.Created, record.toView())
+            }
+            post("/creatures/from-template") {
+                val request = call.receive<CreateCreatureFromTemplateRequest>()
+                val template = GenomeTemplates.all.firstOrNull { it.name == request.templateName }
+                if (template == null) {
+                    call.respond(HttpStatusCode.NotFound, error("NOT_FOUND", "Template not found"))
+                    return@post
+                }
+                val genome = if (request.name.isBlank()) {
+                    template
+                } else {
+                    template.copy(name = request.name)
+                }
+                val analysis = GenomeAnalyzer.analyze(genome)
+                if (!analysis.valid) {
+                    call.respond(HttpStatusCode.UnprocessableEntity, analysis.toValidationResult())
+                    return@post
+                }
+                val ownerId = playerId(call)
+                val record = creatureRepository.create(ownerId, genome, analysis.toValidationResult())
                 call.respond(HttpStatusCode.Created, record.toView())
             }
             get("/creatures") {

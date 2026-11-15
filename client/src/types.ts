@@ -1,5 +1,32 @@
 export type SocketType = "CORE" | "FRONT" | "BACK" | "LEFT" | "RIGHT" | "TOP" | "UNDER";
 
+export type PartVisibility = "INTERNAL" | "EXTERNAL";
+
+export type PartShape =
+  | "LEG"
+  | "WING"
+  | "CLAW"
+  | "FANG"
+  | "SPIKE"
+  | "TAIL"
+  | "HAMMER"
+  | "EYE"
+  | "CHEMO"
+  | "WHISKER"
+  | "ORB"
+  | "PLATE"
+  | "NOZZLE"
+  | "MOUTH"
+  | "GLAND"
+  | "LURE"
+  | "VENT"
+  | "FIN"
+  | "SLIME"
+  | "SKIN"
+  | "HARPOON"
+  | "MORTAR"
+  | "BURROW_CLAW";
+
 export type PartCategory =
   | "CORE"
   | "LOCOMOTION"
@@ -78,6 +105,11 @@ export interface PartDefinition {
   turnMultiplierPct: number;
   energyDrainMilliPerSecond: number;
   flags: PartFlag[];
+  visual: {
+    visibility: PartVisibility;
+    shape: PartShape;
+    scale: number;
+  };
   description: string;
 }
 
@@ -335,6 +367,21 @@ export interface MatchPlayerView {
   hiveId: number;
 }
 
+export interface CreatureRenderPart {
+  partId: string;
+  socketId: SocketType;
+  shape: PartShape;
+  scale: number;
+  mirrored: boolean;
+}
+
+export interface CreatureRenderView {
+  chassisId: string;
+  sizeClass: string;
+  bodyRadiusMm: number;
+  parts: CreatureRenderPart[];
+}
+
 export interface GenomeSummary {
   genomeId: number;
   name: string;
@@ -342,6 +389,8 @@ export interface GenomeSummary {
   behaviorPresetId: string;
   costBm: number;
   radiusMm: number;
+  weapons: string[];
+  render: CreatureRenderView;
 }
 
 export interface EntitySnapshot {
