@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createArmy, createCreatureFromTemplate, createMatch, listArmies, listCreatures } from "../../api";
 import { unlockBattleAudio } from "../../audio/battleAudio";
+import { nextCreatureName } from "../../utils/creatureName";
 import type { ArmyUnitInput, ArmyView, Catalog, CreatureView, MapDefinition, TemplateView } from "../../types";
 
 interface ArmyScreenProps {
@@ -10,6 +11,7 @@ interface ArmyScreenProps {
 
 export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps) {
   const [creatures, setCreatures] = useState<CreatureView[]>([]);
+  const [templateCreatureViews, setTemplateCreatureViews] = useState<CreatureView[]>([]);
   const [armies, setArmies] = useState<ArmyView[]>([]);
   const [units, setUnits] = useState<ArmyUnitInput[]>([]);
   const [armyName, setArmyName] = useState("Моя стая");
@@ -21,9 +23,10 @@ export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps)
   const templateCreatures = useRef(new Map<string, CreatureView>());
 
   const creaturesById = useMemo(
-    () => new Map(creatures.map((creature) => [creature.id, creature])),
-    [creatures]
+    () => new Map([...creatures, ...templateCreatureViews].map((creature) => [creature.id, creature])),
+    [creatures, templateCreatureViews]
   );
+  const collectionCreatures = creatures.filter((creature) => !creature.isTemplate);
   const map = catalog.maps.find((item) => item.id === mapId) ?? catalog.maps[0];
   const totalCost = units.reduce((sum, unit) => sum + (creaturesById.get(unit.creatureId)?.stats.costBm ?? 0), 0);
   const budgetPercent = Math.min(100, (totalCost / catalog.ruleset.armyBudgetBm) * 100);
@@ -89,10 +92,10 @@ export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps)
       if (creature === undefined) {
         creature = await createCreatureFromTemplate(
           template.name,
-          templateLabels[template.name] ?? template.genome.name
+          nextCreatureName(templateLabels[template.name] ?? template.genome.name)
         );
         templateCreatures.current.set(template.id, creature);
-        setCreatures((current) => [creature as CreatureView, ...current]);
+        setTemplateCreatureViews((current) => [creature as CreatureView, ...current]);
       }
       addCreature(creature);
     } catch (reason: unknown) {
@@ -157,7 +160,7 @@ export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps)
       <aside className="panel collection-panel">
         <div className="panel-header">
           <h2>Коллекция</h2>
-          <span className="muted">{creatures.length} сохранено</span>
+          <span className="muted">{collectionCreatures.length} сохранено</span>
         </div>
         <div className="template-army-section">
           <div className="panel-header compact">
@@ -188,14 +191,14 @@ export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps)
           </div>
         </div>
         <h3 className="collection-subtitle">Мои существа</h3>
-        {creatures.length === 0 && (
+        {collectionCreatures.length === 0 && (
           <div className="empty-state">
             <p>Пока нет сохранённых существ.</p>
             <p className="muted">Собери существо в Лаборатории.</p>
           </div>
         )}
         <div className="creature-list">
-          {creatures.map((creature) => {
+          {collectionCreatures.map((creature) => {
             const canAdd =
               units.length < catalog.ruleset.maxCreaturesPerArmy &&
               totalCost + creature.stats.costBm <= catalog.ruleset.armyBudgetBm;
@@ -207,6 +210,10 @@ export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps)
                     {catalog.chassis.find((item) => item.id === creature.genome.chassisId)?.name ?? creature.genome.chassisId} ·{" "}
                     {catalog.behaviorPresets.find((item) => item.id === creature.genome.behavior.presetId)?.name ??
                       creature.genome.behavior.presetId}
+                  </span>
+                  <span className="muted">
+                    Опыт {creature.experience}/{catalog.ruleset.maxExperience} ·{" "}
+                    +{Math.round((creature.experience / Math.max(1, catalog.ruleset.maxExperience)) * 25)}% HP/урон
                   </span>
                 </div>
                 <div className="creature-card-footer">

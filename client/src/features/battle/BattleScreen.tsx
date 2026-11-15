@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { getWsTicket, matchWebSocketUrl } from "../../api";
+import { getWsTicket, matchWebSocketUrl, moveCreature, whipCreature } from "../../api";
 import { BattleAudio, setBattleMapWidth, unlockBattleAudio } from "../../audio/battleAudio";
 import type {
   Catalog,
@@ -28,6 +28,9 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
   const [status, setStatus] = useState("CONNECTING");
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [whipping, setWhipping] = useState(false);
+  const [whipMessage, setWhipMessage] = useState<string | null>(null);
+  const [commandMessage, setCommandMessage] = useState<string | null>(null);
   const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem("iceja.sound") !== "off");
   const [audioVolume, setAudioVolume] = useState(() => {
     const raw = localStorage.getItem("iceja.audioVolume");
@@ -80,6 +83,14 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
   useEffect(() => {
     localStorage.setItem("iceja.visualSettings", JSON.stringify(visualSettings));
   }, [visualSettings]);
+
+  useEffect(() => {
+    if (commandMessage === null) {
+      return;
+    }
+    const timer = window.setTimeout(() => setCommandMessage(null), 2500);
+    return () => window.clearTimeout(timer);
+  }, [commandMessage]);
 
   useEffect(() => {
     localStorage.setItem("iceja.audioVolume", String(audioVolume));
@@ -197,6 +208,36 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
   const pointsB = snapshot?.objectives.filter((objective) => objective.owner === 1).length ?? 0;
   const selectedEntity = snapshot?.entities.find((entity) => entity.id === selectedId) ?? null;
   const selectedGenome = selectedEntity === null ? undefined : genomes.find((genome) => genome.genomeId === selectedEntity.genomeId);
+
+  async function applyMoveOrder(entityId: number, x: number, y: number) {
+    const entity = snapshot?.entities.find((item) => item.id === entityId);
+    if (entity === undefined || entity.owner !== 0 || result !== null) {
+      return;
+    }
+    setCommandMessage(null);
+    try {
+      await moveCreature(matchId, entityId, Math.round(x), Math.round(y));
+      setCommandMessage("Приказ принят: существо движется в точку.");
+    } catch (reason: unknown) {
+      setCommandMessage(reason instanceof Error ? reason.message : "Не удалось отдать приказ");
+    }
+  }
+
+  async function applyWhip() {
+    if (selectedEntity === null || result !== null || selectedEntity.owner !== 0) {
+      return;
+    }
+    setWhipping(true);
+    setWhipMessage(null);
+    try {
+      await whipCreature(matchId, selectedEntity.id);
+      setWhipMessage("Электро-хлыст: 5 секунд боли, затем обычное поведение.");
+    } catch (reason: unknown) {
+      setWhipMessage(reason instanceof Error ? reason.message : "Не удалось применить хлыст");
+    } finally {
+      setWhipping(false);
+    }
+  }
 
   return (
     <div className={cleanMode ? "battle-layout clean" : "battle-layout"}>
@@ -336,11 +377,14 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
             selectedId={selectedId}
             onSelect={(entityId) => {
               audioRef.current?.resume();
+              setWhipMessage(null);
               setSelectedId(entityId);
             }}
+            onCommand={(entityId, x, y) => void applyMoveOrder(entityId, x, y)}
           />
           {visualSettings.minimap && <Minimap map={map} snapshot={snapshot} />}
-          <div className="battle-camera-hint">Колесо — зум · перетаскивание — камера · клик — инспектор</div>
+          <div className="battle-camera-hint">Колесо — зум · перетаскивание — камера · клик — инспектор · повторный клик — приказ</div>
+          {commandMessage !== null && <div className="battle-command-hint">{commandMessage}</div>}
           {snapshot === null && (
             <div className="battle-loading">
               <div className="spinner" />
@@ -382,6 +426,20 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
                         .map((partId) => catalog.parts.find((definition) => definition.id === partId)?.name ?? partId)
                         .join(", ")}
                 </p>
+                {selectedEntity.owner === 0 && (
+                  <div className="whip-block">
+                    <button
+                      className="secondary wide whip-button"
+                      disabled={whipping || result !== null}
+                      onClick={() => void applyWhip()}
+                      title="Заставить существо 5 секунд двигаться в случайном направлении"
+                    >
+                      {whipping ? "Разряд…" : "Электро-хлыст"}
+                    </button>
+                    <p className="muted small-text">5 секунд случайного движения, затем обычное поведение.</p>
+                    {whipMessage !== null && <p className="whip-message">{whipMessage}</p>}
+                  </div>
+                )}
                 <p className="muted small-text">На карте видны только внешние органы.</p>
                 <div className="inspector-parts">
                   {selectedGenome?.render.parts.map((part, index) => (
@@ -545,6 +603,9 @@ function modeLabel(mode: string): string {
     FLANK: "Обход",
     SCOUT: "Разведка",
     RETREAT: "Отступление",
+    HEAL: "Лечение у нектара",
+    PAIN: "Электро-хлыст",
+    MANUAL: "Приказ игрока",
     PATROL: "Патруль",
     IDLE: "Ожидание",
     SIEGE: "Осада",
@@ -571,6 +632,13 @@ function reasonLabel(reason: string): string {
     SELF_DEFENSE: "Самооборона",
     RECON: "Обход карты",
     OUTNUMBERED: "Врагов больше",
+    SEEK_NECTAR: "Идёт к нектару",
+    ELECTRO_WHIP: "Боль от хлыста",
+    HIVE_IN_RANGE: "Улей в радиусе атаки",
+    HIVE_KNOWN: "Штурм известного улья",
+    SCOUT_EVADE: "Разведчик уходит от боя",
+    SCOUT_POTSHOT: "Разведчик стреляет с дистанции",
+    PLAYER_ORDER: "Движение по приказу",
     KEEP_DISTANCE: "Держит дистанцию",
     LOW_HP: "Мало здоровья",
     LOW_ENERGY: "Мало энергии",
@@ -595,14 +663,22 @@ function eventText(event: SimEvent, snapshot: Snapshot | null, genomes: GenomeSu
   switch (event.type) {
     case "SPAWN":
       return `${displayGenomeName(genomes.find((genome) => genome.genomeId === event.value)?.name ?? "Существо")} появилось`;
-    case "ATTACK":
-      return `Атака по ${targetName}`;
+    case "ATTACK": {
+      const targetHive = snapshot?.hives.find((hive) => hive.id === event.targetId);
+      return targetHive === undefined ? `Атака по ${targetName}` : "Атака по улью";
+    }
     case "HIT":
       return `${targetName} получает ${event.value} урона`;
     case "MISS":
       return `Промах по ${targetName}`;
     case "TELEPATHY":
-      return event.text === "HELP" ? "Зов о помощи" : "Телепатический зов на бой";
+      if (event.text === "HELP") return "Зов о помощи";
+      if (event.text === "HIVE_CALL") return "Улей зовёт на помощь";
+      return "Телепатический зов на бой";
+    case "WHIP":
+      return `${targetName} получает электро-хлыст`;
+    case "HIVE_FOUND":
+      return "Улей противника обнаружен";
     case "CAPTURE":
       return `${ownerName(event.value)} захватывает ${event.text}`;
     case "OBJECTIVE_LOST":

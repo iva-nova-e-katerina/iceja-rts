@@ -201,6 +201,7 @@ export interface Ruleset {
   hiveHp: number;
   hiveRadiusMm: number;
   hiveArmor: number;
+  maxExperience: number;
 }
 
 export interface BehaviorPresetDefinition {
@@ -369,6 +370,8 @@ export interface CreatureView {
   validation: ValidationResult;
   version: number;
   createdAt: number;
+  experience: number;
+  isTemplate: boolean;
 }
 
 export interface ArmyUnitInput {

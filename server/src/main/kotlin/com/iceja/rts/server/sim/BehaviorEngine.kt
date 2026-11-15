@@ -108,7 +108,29 @@ object BehaviorEngine {
             )
         }
 
-        if ((preset.id == "SKIRMISHER" || preset.id == "SCOUT") && target != null) {
+        if (preset.id == "SCOUT" && target != null) {
+            val weapon = rangedWeapon
+            if (weapon != null) {
+                val safeDistance = maxOf(4_000, weapon.rangeMm * 35 / 100)
+                if (targetDistance < safeDistance) {
+                    return kiteDecision(creature, target, weapon.rangeMm)
+                }
+                if (targetDistance <= weapon.rangeMm) {
+                    return attackDecision(target, "SCOUT_POTSHOT")
+                }
+            }
+            return AiDecision(
+                mode = "SURVIVE",
+                reason = "SCOUT_EVADE",
+                targetId = 0,
+                moveTarget = Vec2(ownHive.x, ownHive.y),
+                attackTargetId = 0,
+                attackHive = false,
+                fleeFrom = Vec2(target.x, target.y)
+            )
+        }
+
+        if (preset.id == "SKIRMISHER" && target != null) {
             if (rangedWeapon != null) {
                 val idealRange = maxOf(5_000, rangedWeapon.rangeMm * 3 / 4)
                 if (targetDistance * 100 < idealRange * 55) {
@@ -157,6 +179,23 @@ object BehaviorEngine {
                 return flankDecision(creature, target)
             }
             return attackDecision(target, "TARGET_VISIBLE")
+        }
+
+        val maxWeaponRange = creature.stats.weapons.maxOfOrNull { it.rangeMm } ?: 0
+        if (enemyHiveVisible &&
+            maxWeaponRange > 0 &&
+            IntegerMath.distance(creature.x, creature.y, enemyHive.x, enemyHive.y) <=
+            maxWeaponRange + enemyHive.radiusMm
+        ) {
+            return AiDecision(
+                mode = "ATTACK",
+                reason = "HIVE_IN_RANGE",
+                targetId = enemyHive.id,
+                moveTarget = Vec2(enemyHive.x, enemyHive.y),
+                attackTargetId = enemyHive.id,
+                attackHive = true,
+                fleeFrom = null
+            )
         }
 
         return patrolDecision(creature, ownHive, enemyHive, tick)

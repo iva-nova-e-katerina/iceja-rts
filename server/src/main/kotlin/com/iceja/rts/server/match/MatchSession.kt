@@ -35,7 +35,8 @@ class MatchSession(
     val ownerId: String,
     val opponent: String,
     val simulation: Simulation,
-    val createdAt: Long
+    val createdAt: Long,
+    private val onFinished: (Simulation) -> Unit = {}
 ) {
     private val json = Json {
         encodeDefaults = true
@@ -76,6 +77,7 @@ class MatchSession(
                     broadcast("snapshot", snapshot)
                 }
                 if (simulation.result != null) {
+                    onFinished(simulation)
                     broadcast(
                         "match_end",
                         MatchEndPayload(

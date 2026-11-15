@@ -20,6 +20,26 @@ class GenomeAnalyzerTest {
     }
 
     @Test
+    fun allTemplatesHaveWeapons() {
+        GenomeTemplates.all.forEach { genome ->
+            val parts = genome.parts.mapNotNull { GameCatalog.partsById[it.partId] }
+            assertTrue(parts.any { it.weapon != null }, "${genome.name} must have a weapon")
+        }
+    }
+
+    @Test
+    fun unarmedGenomeIsRejected() {
+        val genome = GenomeTemplates.all.first { it.name == "Brawler" }.let { template ->
+            template.copy(parts = template.parts.filterNot { placement ->
+                GameCatalog.partsById[placement.partId]?.weapon != null
+            })
+        }
+        val analysis = GenomeAnalyzer.analyze(genome)
+        assertFalse(analysis.valid)
+        assertTrue(analysis.errors.any { it.code == "NO_WEAPON" })
+    }
+
+    @Test
     fun allTemplatesHaveSensors() {
         GenomeTemplates.all.forEach { genome ->
             val parts = genome.parts.mapNotNull { GameCatalog.partsById[it.partId] }

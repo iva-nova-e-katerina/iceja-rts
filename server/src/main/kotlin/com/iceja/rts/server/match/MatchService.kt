@@ -4,6 +4,7 @@ import com.iceja.rts.server.api.ArmyView
 import com.iceja.rts.server.api.CreateMatchRequest
 import com.iceja.rts.server.catalog.GameCatalog
 import com.iceja.rts.server.sim.ArmyPlacement
+import com.iceja.rts.server.sim.ExperienceRules
 import com.iceja.rts.server.sim.PlayerSetup
 import com.iceja.rts.server.sim.Simulation
 import com.iceja.rts.server.sim.SimulationConfig
@@ -57,9 +58,10 @@ class MatchService(
             }
             ArmyPlacement(
                 genome = creature.genome,
-                stats = creature.stats,
+                stats = ExperienceRules.apply(creature.stats, creature.experience),
                 x = unit.x,
-                y = unit.y
+                y = unit.y,
+                sourceCreatureId = creature.id
             )
         }
 
@@ -88,11 +90,22 @@ class MatchService(
             ownerId = ownerId,
             opponent = request.opponent,
             simulation = simulation,
-            createdAt = Instant.now().toEpochMilli()
+            createdAt = Instant.now().toEpochMilli(),
+            onFinished = { finished -> awardExperience(finished) }
         )
         matchRepository.save(session)
         session.start(scope)
         return session
+    }
+
+    private fun awardExperience(simulation: Simulation) {
+        val awarded = mutableSetOf<String>()
+        simulation.livingCreatures(0).forEach { creature ->
+            val sourceId = creature.sourceCreatureId
+            if (sourceId.isNotBlank() && awarded.add(sourceId)) {
+                creatureRepository.addExperience(sourceId, ExperienceRules.gain(creature))
+            }
+        }
     }
 
     fun findMatch(matchId: String): MatchSession? = matchRepository.find(matchId)

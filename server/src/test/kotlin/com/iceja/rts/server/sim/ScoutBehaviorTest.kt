@@ -56,6 +56,44 @@ class ScoutBehaviorTest {
         assertEquals("RESPOND", ally.aiMode)
     }
 
+    @Test
+    fun scoutShootsVisibleEnemyWithoutChasing() {
+        val simulation = simulation(
+            alpha = listOf(placement(scout, 60_000, 96_000)),
+            beta = listOf(placement(brawler, 70_000, 96_000))
+        )
+        val events = mutableListOf<SimEvent>()
+        repeat(30) {
+            simulation.step()
+            events += simulation.events()
+        }
+
+        val scoutUnit = simulation.creatures().first { it.id == 3 }
+        assertTrue(
+            events.any { it.type == "ATTACK" && it.sourceId == 3 },
+            "scout should take a ranged shot"
+        )
+        assertTrue(scoutUnit.aiMode != "SURVIVE" || scoutUnit.aiReason != "SCOUT_EVADE")
+    }
+
+    @Test
+    fun scoutCanShootEnemyHive() {
+        val simulation = simulation(
+            alpha = listOf(placement(scout, 155_000, 96_000)),
+            beta = listOf(placement(brawler, 180_000, 20_000))
+        )
+        val enemyHive = simulation.hives().first { it.ownerId == 1 }
+        val startHp = enemyHive.hp
+        val events = mutableListOf<SimEvent>()
+        repeat(30) {
+            simulation.step()
+            events += simulation.events()
+        }
+
+        assertTrue(events.any { it.type == "ATTACK" && it.sourceId == 3 && it.targetId == enemyHive.id })
+        assertTrue(enemyHive.hp < startHp)
+    }
+
     private fun simulation(alpha: List<ArmyPlacement>, beta: List<ArmyPlacement>): Simulation =
         Simulation(
             matchId = "scout-test",

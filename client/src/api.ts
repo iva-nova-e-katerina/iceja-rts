@@ -126,6 +126,25 @@ export async function createMatch(armyId: string, mapId: string): Promise<MatchV
   });
 }
 
+export async function moveCreature(
+  matchId: string,
+  entityId: number,
+  x: number,
+  y: number
+): Promise<{ applied: boolean }> {
+  return request<{ applied: boolean }>(`/api/v1/matches/${matchId}/move`, {
+    method: "POST",
+    body: JSON.stringify({ entityId, x, y })
+  });
+}
+
+export async function whipCreature(matchId: string, entityId: number): Promise<{ applied: boolean }> {
+  return request<{ applied: boolean }>(`/api/v1/matches/${matchId}/whip`, {
+    method: "POST",
+    body: JSON.stringify({ entityId })
+  });
+}
+
 export async function listMatches(): Promise<MatchView[]> {
   return request<MatchView[]>("/api/v1/matches");
 }

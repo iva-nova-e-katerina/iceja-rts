@@ -171,6 +171,8 @@ export class BattleAudio {
     const spawn = events.find((event) => event.type === "SPAWN");
     const resource = events.find((event) => event.type === "RESOURCE");
     const telepathy = events.find((event) => event.type === "TELEPATHY");
+    const whip = events.find((event) => event.type === "WHIP");
+    const hiveFound = events.find((event) => event.type === "HIVE_FOUND");
     const hit = hits[0];
     const attack = attacks[0];
 
@@ -181,7 +183,18 @@ export class BattleAudio {
       this.playEat(panFor(resource));
     }
     if (telepathy !== undefined && this.canPlay("telepathy", 420)) {
-      this.playTelepathy(panFor(telepathy), telepathy.text === "HELP");
+      this.playTelepathy(
+        panFor(telepathy),
+        telepathy.text === "HELP" || telepathy.text === "HIVE_CALL"
+      );
+    }
+    if (whip !== undefined && this.canPlay("whip", 80)) {
+      this.playImpact("ELECTRIC", panFor(whip), 1.25);
+      this.tone("sawtooth", 720, 120, 0.18, 0.08, 0, panFor(whip), 0.06);
+    }
+    if (hiveFound !== undefined && this.canPlay("hive-found", 420)) {
+      this.playTelepathy(panFor(hiveFound), false);
+      this.tone("triangle", 523, 784, 0.5, 0.05, 0.18, panFor(hiveFound), 0.2);
     }
     if (death !== undefined && this.canPlay("death", 120)) {
       if (death.text === "HIVE_DESTROYED") {

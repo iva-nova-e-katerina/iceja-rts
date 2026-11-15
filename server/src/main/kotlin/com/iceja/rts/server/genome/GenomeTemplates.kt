@@ -110,7 +110,8 @@ object GenomeTemplates {
                 part("HEART", SocketType.CORE),
                 part("SYMBIOTE", SocketType.CORE),
                 part("SCUTTLER", SocketType.LEFT, mirrored = true),
-                part("FACET", SocketType.FRONT)
+                part("FACET", SocketType.FRONT),
+                part("SPINE", SocketType.TOP)
             ),
             behavior = BehaviorSpec(presetId = "GUARD"),
             catalogVersion = GameCatalog.CATALOG_VERSION
@@ -151,7 +152,8 @@ object GenomeTemplates {
                 part("NECTARCROP", SocketType.CORE),
                 part("SCUTTLER", SocketType.LEFT, mirrored = true),
                 part("SCAVENGER", SocketType.FRONT),
-                part("FACET", SocketType.FRONT)
+                part("FACET", SocketType.FRONT),
+                part("SPINE", SocketType.TOP)
             ),
             behavior = BehaviorSpec(presetId = "SCAVENGER"),
             catalogVersion = GameCatalog.CATALOG_VERSION

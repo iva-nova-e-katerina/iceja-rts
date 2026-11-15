@@ -10,7 +10,8 @@ data class ArmyPlacement(
     val genome: Genome,
     val stats: DerivedStats,
     val x: Int,
-    val y: Int
+    val y: Int,
+    val sourceCreatureId: String = ""
 )
 
 data class PlayerSetup(
@@ -70,7 +71,8 @@ class Creature(
     val stats: DerivedStats,
     var x: Int,
     var y: Int,
-    val canFly: Boolean = false
+    val canFly: Boolean = false,
+    val sourceCreatureId: String = ""
 ) {
     var hp: Int = stats.maxHp
     var energy: Int = stats.maxEnergy
@@ -93,6 +95,12 @@ class Creature(
     var pathGoalY: Int = 0
     var nextRepathTick: Int = 0
     var lastDamageTick: Int = -10_000
+    var painTicks: Int = 0
+    var painTargetX: Int = 0
+    var painTargetY: Int = 0
+    var manualOrderTicks: Int = 0
+    var manualTargetX: Int = 0
+    var manualTargetY: Int = 0
     val scoutVisitedCells: MutableSet<Int> = mutableSetOf()
     var scoutTargetX: Int = 0
     var scoutTargetY: Int = 0
@@ -159,6 +167,13 @@ data class SimEvent(
 )
 
 @Serializable
+data class MoveOrder(
+    val entityId: Int,
+    val ownerId: Int,
+    val x: Int,
+    val y: Int
+)
+
 class ObjectivePoint(
     val id: String,
     val name: String,

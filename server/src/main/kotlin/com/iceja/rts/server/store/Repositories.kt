@@ -4,6 +4,7 @@ import com.iceja.rts.server.api.ArmyUnitInput
 import com.iceja.rts.server.api.ArmyUnitView
 import com.iceja.rts.server.api.ArmyView
 import com.iceja.rts.server.api.CreatureView
+import com.iceja.rts.server.catalog.GameCatalog
 import com.iceja.rts.server.genome.DerivedStats
 import com.iceja.rts.server.genome.Genome
 import com.iceja.rts.server.genome.ValidationResult
@@ -18,7 +19,9 @@ data class CreatureRecord(
     val stats: DerivedStats,
     val validation: ValidationResult,
     val version: Int,
-    val createdAt: Long
+    val createdAt: Long,
+    val experience: Int = 0,
+    val isTemplate: Boolean = false
 ) {
     fun toView(): CreatureView = CreatureView(
         id = id,
@@ -26,7 +29,9 @@ data class CreatureRecord(
         stats = stats,
         validation = validation,
         version = version,
-        createdAt = createdAt
+        createdAt = createdAt,
+        experience = experience,
+        isTemplate = isTemplate
     )
 }
 
@@ -68,7 +73,12 @@ data class ArmyRecord(
 class CreatureRepository {
     private val creatures = ConcurrentHashMap<String, CreatureRecord>()
 
-    fun create(ownerId: String, genome: Genome, validation: ValidationResult): CreatureRecord {
+    fun create(
+        ownerId: String,
+        genome: Genome,
+        validation: ValidationResult,
+        isTemplate: Boolean = false
+    ): CreatureRecord {
         val record = CreatureRecord(
             id = UUID.randomUUID().toString(),
             ownerId = ownerId,
@@ -76,10 +86,30 @@ class CreatureRepository {
             stats = validation.stats,
             validation = validation,
             version = 1,
-            createdAt = Instant.now().toEpochMilli()
+            createdAt = Instant.now().toEpochMilli(),
+            experience = 0,
+            isTemplate = isTemplate
         )
         creatures[record.id] = record
         return record
+    }
+
+    fun addExperience(creatureId: String, amount: Int): CreatureRecord? {
+        if (amount <= 0) {
+            return creatures[creatureId]
+        }
+        val current = creatures[creatureId] ?: return null
+        val nextExperience = (current.experience + amount)
+            .coerceAtMost(GameCatalog.ruleset.maxExperience)
+        if (nextExperience == current.experience) {
+            return current
+        }
+        val updated = current.copy(
+            experience = nextExperience,
+            version = current.version + 1
+        )
+        creatures[creatureId] = updated
+        return updated
     }
 
     fun find(creatureId: String): CreatureRecord? = creatures[creatureId]

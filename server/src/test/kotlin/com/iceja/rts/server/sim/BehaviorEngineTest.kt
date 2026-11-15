@@ -74,6 +74,26 @@ class BehaviorEngineTest {
     }
 
     @Test
+    fun unitAttacksEnemyHiveInRange() {
+        val brawler = creature(3, 0, GenomeTemplates.all.first { it.name == "Brawler" }, 104_000, 64_000)
+
+        val decision = BehaviorEngine.decide(
+            creature = brawler,
+            friends = listOf(brawler),
+            enemies = emptyList(),
+            ownHive = hiveA,
+            enemyHive = hiveB,
+            tick = 0,
+            enemyHiveVisible = true
+        )
+
+        assertEquals("ATTACK", decision.mode)
+        assertTrue(decision.attackHive)
+        assertEquals(hiveB.id, decision.attackTargetId)
+        assertEquals("HIVE_IN_RANGE", decision.reason)
+    }
+
+    @Test
     fun berserkPatrolsWithoutVisibleEnemy() {
         val berserk = creature(3, 0, GenomeTemplates.all.first { it.name == "Brawler" }, 60_000, 64_000)
 

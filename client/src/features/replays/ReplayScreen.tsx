@@ -131,6 +131,7 @@ export default function ReplayScreen({ catalog }: ReplayScreenProps) {
                 genomes={selectedGenomes}
                 selectedId={null}
                 onSelect={() => undefined}
+                onCommand={() => undefined}
               />
             </div>
             <div className="replay-controls">

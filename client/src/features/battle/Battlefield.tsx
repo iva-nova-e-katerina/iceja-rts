@@ -19,6 +19,7 @@ interface BattlefieldProps {
   smoothMotion?: boolean;
   selectedId: number | null;
   onSelect: (entityId: number | null) => void;
+  onCommand: (entityId: number, x: number, y: number) => void;
 }
 
 interface DragState {
@@ -50,7 +51,8 @@ export default function Battlefield({
   effectsEnabled = true,
   smoothMotion = true,
   selectedId,
-  onSelect
+  onSelect,
+  onCommand
 }: BattlefieldProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<Application | null>(null);
@@ -74,9 +76,13 @@ export default function Battlefield({
   const effectsEnabledRef = useRef(effectsEnabled);
   const smoothMotionRef = useRef(smoothMotion);
   const onSelectRef = useRef(onSelect);
+  const onCommandRef = useRef(onCommand);
+  const selectedIdRef = useRef<number | null>(selectedId);
   const [ready, setReady] = useState(false);
 
   onSelectRef.current = onSelect;
+  onCommandRef.current = onCommand;
+  selectedIdRef.current = selectedId;
   effectsEnabledRef.current = effectsEnabled;
   smoothMotionRef.current = smoothMotion;
   snapshotRef.current = snapshot;
@@ -243,7 +249,30 @@ export default function Battlefield({
             })
             .filter(({ distance }) => distance < 5000)
             .sort((left, right) => left.distance - right.distance)[0];
-          onSelectRef.current(target?.entity.id ?? null);
+          if (target !== undefined) {
+            onSelectRef.current(target.entity.id);
+            return;
+          }
+          const selectedId = selectedIdRef.current;
+          const selected = selectedId === null
+            ? undefined
+            : current.entities.find((entity) => entity.id === selectedId);
+          if (selected !== undefined && selected.owner === 0) {
+            onCommandRef.current(selected.id, point.x, point.y);
+            const layer = effectLayerRef.current;
+            if (layer !== null) {
+              const marker = new Graphics()
+                .circle(point.x, point.y, 1_200)
+                .stroke({ width: 260, color: 0x7cf7ff, alpha: 0.9 });
+              layer.addChild(marker);
+              window.setTimeout(() => {
+                marker.removeFromParent();
+                marker.destroy();
+              }, 700);
+            }
+            return;
+          }
+          onSelectRef.current(null);
         }
       };
 
@@ -512,9 +541,14 @@ export default function Battlefield({
         return;
       }
       if (effectsEnabledRef.current) {
-        if (event.type === "HIT" || event.type === "DEATH" || event.type === "OBJECTIVE") {
+        if (
+          event.type === "HIT" ||
+          event.type === "DEATH" ||
+          event.type === "OBJECTIVE" ||
+          event.type === "WHIP"
+        ) {
           spawnImpact(layer, event, effectTimersRef.current);
-        } else if (event.type === "TELEPATHY") {
+        } else if (event.type === "TELEPATHY" || event.type === "HIVE_FOUND") {
           spawnTelepathy(layer, event, snapshotRef.current, effectTimersRef.current);
         }
       }
@@ -532,9 +566,14 @@ function spawnTelepathy(
   snapshot: Snapshot | null,
   timers: number[]
 ) {
-  const color = event.text === "HELP" ? 0xff6ad5 : 0x78f4ff;
-  const source = snapshot?.entities.find((entity) => entity.id === event.sourceId);
-  const target = snapshot?.entities.find((entity) => entity.id === event.targetId);
+  const help = event.text === "HELP" || event.text === "HIVE_CALL";
+  const color = event.type === "HIVE_FOUND" ? 0xffd166 : help ? 0xff6ad5 : 0x78f4ff;
+  const sourceEntity = snapshot?.entities.find((entity) => entity.id === event.sourceId);
+  const sourceHive = snapshot?.hives.find((hive) => hive.id === event.sourceId);
+  const targetEntity = snapshot?.entities.find((entity) => entity.id === event.targetId);
+  const targetHive = snapshot?.hives.find((hive) => hive.id === event.targetId);
+  const source = sourceEntity ?? sourceHive;
+  const target = targetEntity ?? targetHive;
   const centerX = source?.x ?? event.x;
   const centerY = source?.y ?? event.y;
 
@@ -603,7 +642,7 @@ function spawnTelepathy(
 
 function spawnImpact(layer: Container, event: SimEvent, timers: number[]) {
   const color = impactColor(event);
-  const radius = event.type === "DEATH" ? 1_200 : event.type === "OBJECTIVE" ? 1_800 : 420;
+  const radius = event.type === "DEATH" ? 1_200 : event.type === "OBJECTIVE" ? 1_800 : event.type === "WHIP" ? 700 : 420;
   const effect = new Graphics()
     .circle(event.x, event.y, radius)
     .fill({ color, alpha: 0.45 })
@@ -621,6 +660,7 @@ function spawnImpact(layer: Container, event: SimEvent, timers: number[]) {
 function impactColor(event: SimEvent): number {
   if (event.type === "DEATH") return 0xff5c6c;
   if (event.type === "OBJECTIVE") return 0xffb347;
+  if (event.type === "WHIP") return 0x7cf7ff;
   switch (event.text) {
     case "PIERCING":
       return 0xffffff;

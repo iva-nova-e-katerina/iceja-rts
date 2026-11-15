@@ -121,7 +121,12 @@ fun Application.configureApi(
                     return@post
                 }
                 val ownerId = playerId(call)
-                val record = creatureRepository.create(ownerId, genome, analysis.toValidationResult())
+                val record = creatureRepository.create(
+                    ownerId,
+                    genome,
+                    analysis.toValidationResult(),
+                    isTemplate = true
+                )
                 call.respond(HttpStatusCode.Created, record.toView())
             }
             get("/creatures") {
@@ -205,6 +210,50 @@ fun Application.configureApi(
                 } else {
                     call.respond(session.matchView())
                 }
+            }
+            post("/matches/{id}/move") {
+                val request = call.receive<MoveOrderRequest>()
+                val matchId = call.parameters["id"]
+                val session = matchId?.let { matchService.findMatch(it) }
+                if (session == null) {
+                    call.respond(HttpStatusCode.NotFound, error("MATCH_NOT_FOUND", "Match not found"))
+                    return@post
+                }
+                if (session.ownerId != playerId(call)) {
+                    call.respond(HttpStatusCode.Forbidden, error("FORBIDDEN", "Match belongs to another player"))
+                    return@post
+                }
+                if (session.simulation.result != null) {
+                    call.respond(HttpStatusCode.Conflict, error("MATCH_FINISHED", "Match is already finished"))
+                    return@post
+                }
+                if (!session.simulation.moveCreature(request.entityId, 0, request.x, request.y)) {
+                    call.respond(HttpStatusCode.NotFound, error("CREATURE_NOT_FOUND", "Creature not found"))
+                    return@post
+                }
+                call.respond(MoveOrderResponse(applied = true))
+            }
+            post("/matches/{id}/whip") {
+                val request = call.receive<WhipRequest>()
+                val matchId = call.parameters["id"]
+                val session = matchId?.let { matchService.findMatch(it) }
+                if (session == null) {
+                    call.respond(HttpStatusCode.NotFound, error("MATCH_NOT_FOUND", "Match not found"))
+                    return@post
+                }
+                if (session.ownerId != playerId(call)) {
+                    call.respond(HttpStatusCode.Forbidden, error("FORBIDDEN", "Match belongs to another player"))
+                    return@post
+                }
+                if (session.simulation.result != null) {
+                    call.respond(HttpStatusCode.Conflict, error("MATCH_FINISHED", "Match is already finished"))
+                    return@post
+                }
+                if (!session.simulation.whipCreature(request.entityId, 0)) {
+                    call.respond(HttpStatusCode.NotFound, error("CREATURE_NOT_FOUND", "Creature not found"))
+                    return@post
+                }
+                call.respond(WhipResponse(applied = true))
             }
             get("/matches/{id}/result") {
                 val matchId = call.parameters["id"]

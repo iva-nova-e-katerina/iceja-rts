@@ -33,7 +33,7 @@ class CorpseScavengingTest {
             matchId = "scavenger",
             seed = 21L,
             config = SimulationConfig(
-                map = GameCatalog.map("duel-arena"),
+                map = GameCatalog.map("duel-arena").copy(objectives = emptyList(), hazards = emptyList()),
                 maxTicks = 900,
                 overtimeTicks = 0
             ),

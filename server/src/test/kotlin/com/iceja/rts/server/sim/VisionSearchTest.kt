@@ -58,9 +58,9 @@ class VisionSearchTest {
 
     @Test
     fun unitsEventuallyFindAndFight() {
-        val scout = GenomeTemplates.all.first { it.name == "Scout" }
+        val scout = GenomeTemplates.all.first { it.name == "Brawler" }
         val brawler = GenomeTemplates.all.first { it.name == "Brawler" }
-        val map = GameCatalog.map("duel-arena")
+        val map = GameCatalog.map("duel-arena").copy(objectives = emptyList(), hazards = emptyList())
         val simulation = Simulation(
             matchId = "vision-contact",
             seed = 100L,

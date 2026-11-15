@@ -174,7 +174,7 @@ object GenomeAnalyzer {
             info += info("SENSOR_HINT", "Add eyes or chemoreceptors to let the creature find targets")
         }
         if (weaponCount == 0) {
-            warnings += warning("NO_WEAPON", "Creature has no weapon")
+            errors += error("NO_WEAPON", "Creature needs at least one weapon")
         }
         if (stats.maxHp < 100) {
             warnings += warning("LOW_HP", "Creature has less than 100 HP")

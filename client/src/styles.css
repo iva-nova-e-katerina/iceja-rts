@@ -847,11 +847,12 @@ label select,
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   padding: 18px;
   border: 1px solid var(--line);
   border-radius: 14px;
   background: linear-gradient(180deg, rgba(13, 23, 27, 0.96), rgba(8, 15, 18, 0.96));
-  overflow: auto;
+  overflow: hidden;
 }
 
 .army-builder-grid {
@@ -860,13 +861,15 @@ label select,
   gap: 16px;
   flex: 1;
   min-height: 0;
+  overflow: hidden;
 }
 
 .army-map-wrap {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 320px;
+  min-height: 0;
+  height: 100%;
   padding: 10px;
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -875,7 +878,7 @@ label select,
 
 .army-map {
   width: 100%;
-  max-height: 58vh;
+  max-height: 100%;
   border-radius: 8px;
 }
 
@@ -883,6 +886,9 @@ label select,
   display: grid;
   align-content: start;
   gap: 12px;
+  min-height: 0;
+  padding-right: 4px;
+  overflow-y: auto;
 }
 
 .unit-row {
@@ -1273,6 +1279,27 @@ label select,
   .army-builder-grid,
   .replay-bottom {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .planner-panel {
+    overflow: auto;
+  }
+
+  .army-builder-grid {
+    overflow: visible;
+  }
+
+  .army-form {
+    overflow: visible;
+  }
+
+  .army-map-wrap {
+    height: auto;
+    min-height: 320px;
+  }
+
+  .army-map {
+    max-height: 58vh;
   }
 
   .battle-overlay,
@@ -2557,4 +2584,44 @@ label select,
   grid-column: 1 / -1;
   width: 100%;
   accent-color: var(--green);
+}
+
+.wizard-construction-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.wizard-construction .wizard-part-list {
+  max-height: 300px;
+}
+
+.whip-block {
+  display: grid;
+  gap: 4px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.whip-message {
+  color: #9fe9ff;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.battle-command-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 46px;
+  z-index: 3;
+  padding: 6px 10px;
+  border: 1px solid #2f6a5a;
+  border-radius: 8px;
+  background: rgba(8, 20, 18, 0.9);
+  color: #baf7e5;
+  font-size: 11px;
+  transform: translateX(-50%);
+  pointer-events: none;
 }

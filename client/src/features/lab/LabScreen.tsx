@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { createArmy, createCreature, createMatch, validateGenome } from "../../api";
+import { nextCreatureName } from "../../utils/creatureName";
 import { unlockBattleAudio } from "../../audio/battleAudio";
 import type {
   Catalog,
@@ -54,6 +55,7 @@ const issueLabels: Record<string, string> = {
   MULTIPLE_BRAINS: "оставь только один мозг",
   NO_METABOLISM: "добавь сердце или реактор",
   NO_LOCOMOTION: "добавь ноги или крылья",
+  NO_WEAPON: "добавь оружие",
   STATIC_LOCOMOTION: "убери движение у статичного шасси",
   SOCKET_MISMATCH: "орган не подходит к слоту",
   SOCKET_OCCUPIED: "освободи слот",
@@ -85,7 +87,7 @@ export default function LabScreen({ catalog, onSaved, onBattle }: LabScreenProps
     catalog.behaviorGraphs.find((item) => item.presetId === initialTemplate.genome.behavior.presetId)?.graph ?? null;
   const [genome, setGenome] = useState<Genome>(() => {
     const clone = cloneGenome(initialTemplate.genome);
-    clone.name = templateLabels[initialTemplate.name] ?? clone.name;
+    clone.name = nextCreatureName(templateLabels[initialTemplate.name] ?? clone.name);
     clone.behavior = {
       presetId: clone.behavior.presetId,
       graph: initialGraph
@@ -97,6 +99,8 @@ export default function LabScreen({ catalog, onSaved, onBattle }: LabScreenProps
   const [search, setSearch] = useState("");
   const [step, setStep] = useState(0);
   const [wizardCategory, setWizardCategory] = useState<PartCategory>("SENSOR");
+  const [constructionCategory, setConstructionCategory] = useState<PartCategory>("SENSOR");
+  const [constructionOpen, setConstructionOpen] = useState(false);
   const [mirror, setMirror] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -190,16 +194,22 @@ export default function LabScreen({ catalog, onSaved, onBattle }: LabScreenProps
       : step === 3
         ? [wizardCategory]
         : [];
-  const filteredParts = addableParts.filter((part) => {
-    const categoryMatches = stepCategories.includes(part.category);
+  const matchesSearch = (part: PartDefinition): boolean => {
     const needle = search.trim().toLowerCase();
-    const searchMatches =
+    return (
       needle === "" ||
       part.name.toLowerCase().includes(needle) ||
       part.id.toLowerCase().includes(needle) ||
-      part.description.toLowerCase().includes(needle);
-    return categoryMatches && searchMatches;
+      part.description.toLowerCase().includes(needle)
+    );
+  };
+  const filteredParts = addableParts.filter((part) => {
+    const categoryMatches = stepCategories.includes(part.category);
+    return categoryMatches && matchesSearch(part);
   });
+  const constructionParts = addableParts.filter(
+    (part) => part.category === constructionCategory && matchesSearch(part)
+  );
 
   const friendlyIssues = unique(
     (validation?.errors ?? []).map((issue) => issueLabels[issue.code] ?? "проверь комплектацию")
@@ -251,6 +261,15 @@ export default function LabScreen({ catalog, onSaved, onBattle }: LabScreenProps
         ? ["FRONT", "BACK", "TOP", "UNDER", "LEFT", "RIGHT"]
         : [];
   const wizardCategories: PartCategory[] = ["SENSOR", "MELEE", "RANGED", "DEFENSE", "UTILITY"];
+  const constructionCategories: PartCategory[] = [
+    "CORE",
+    "LOCOMOTION",
+    "SENSOR",
+    "MELEE",
+    "RANGED",
+    "DEFENSE",
+    "UTILITY"
+  ];
 
   function addPart(part: PartDefinition) {
     const check = canAddPart(part, genome, chassis, mirror, catalog, partsById, stats);
@@ -264,16 +283,29 @@ export default function LabScreen({ catalog, onSaved, onBattle }: LabScreenProps
   }
 
   function removePart(index: number) {
-    const check = canRemovePart(index, genome, chassis, partsById, stats);
+    const check = canRemovePart(index, genome, partsById, stats);
     if (!check.allowed) {
       setMessage(check.reason);
       return;
     }
+    const removedPart = partsById.get(genome.parts[index]?.partId ?? "");
+    const remaining = genome.parts.filter((_, partIndex) => partIndex !== index);
+    const lastLocomotion =
+      removedPart?.traction !== undefined &&
+      removedPart.traction > 0 &&
+      !remaining.some((placement) => (partsById.get(placement.partId)?.traction ?? 0) > 0);
     setGenome((current) => ({
       ...current,
       parts: current.parts.filter((_, partIndex) => partIndex !== index)
     }));
-    setMessage(null);
+    if (lastLocomotion) {
+      setStep(4);
+      setConstructionOpen(true);
+      setConstructionCategory("LOCOMOTION");
+      setMessage("Локомоция снята. Добавь крылья или новые ноги — без них существо не сможет двигаться.");
+    } else {
+      setMessage(null);
+    }
   }
 
   function adjustUpgrade(stat: UpgradeStat, delta: number) {
@@ -298,7 +330,7 @@ export default function LabScreen({ catalog, onSaved, onBattle }: LabScreenProps
 
   function loadTemplate(templateGenome: Genome) {
     const clone = cloneGenome(templateGenome);
-    clone.name = templateLabels[templateGenome.name] ?? clone.name;
+    clone.name = nextCreatureName(templateLabels[templateGenome.name] ?? clone.name);
     clone.behavior = {
       presetId: clone.behavior.presetId,
       graph: graphForPreset(clone.behavior.presetId)
@@ -306,7 +338,11 @@ export default function LabScreen({ catalog, onSaved, onBattle }: LabScreenProps
     setGenome(clone);
     const template = catalog.templates.find((item) => item.genome.name === templateGenome.name);
     setValidation(template?.validation ?? null);
-    setMessage(`Загружен шаблон «${templateLabels[templateGenome.name] ?? templateGenome.name}».`);
+    setConstructionCategory("SENSOR");
+    setConstructionOpen(true);
+    setMessage(
+      `Загружен шаблон «${templateLabels[templateGenome.name] ?? templateGenome.name}». Можно менять органы, улучшения и поведение.`
+    );
     setStep(4);
   }
 
@@ -325,7 +361,7 @@ export default function LabScreen({ catalog, onSaved, onBattle }: LabScreenProps
   function startBlank() {
     setGenome({
       ...genome,
-      name: "Моя тварь",
+      name: nextCreatureName("Тварь"),
       parts: [],
       upgrades: [],
       behavior: {
@@ -351,7 +387,7 @@ export default function LabScreen({ catalog, onSaved, onBattle }: LabScreenProps
     if (!hasSensorIn(next, partsById)) addRole("sensor");
     if (!hasWeaponIn(next, partsById)) addRole("weapon");
     if (next.name.trim().length < 3) {
-      next.name = "Моя тварь";
+      next.name = nextCreatureName("Тварь");
     }
     setGenome(next);
     setMessage("Базовые органы добавлены. Можно сохранять или настроить детали.");
@@ -534,7 +570,7 @@ export default function LabScreen({ catalog, onSaved, onBattle }: LabScreenProps
 
               <div className="wizard-section">
                 <h3>Готовый шаблон</h3>
-                <p className="muted">Можно загрузить готовую тварь и сразу перейти к проверке.</p>
+                <p className="muted">Можно загрузить готовую тварь и сразу доработать её конструкцию и поведение.</p>
                 <div className="wizard-template-grid">
                   {catalog.templates.map((template) => (
                     <button
@@ -587,48 +623,17 @@ export default function LabScreen({ catalog, onSaved, onBattle }: LabScreenProps
               />
               <p className="muted small-text">Показаны только органы, которые можно добавить сейчас.</p>
 
-              <div className="wizard-part-list">
-                {filteredParts.length === 0 && (
-                  <p className="muted">
-                    {step !== 3 && steps[step]?.done
-                      ? "Все обязательные органы для этого шага уже установлены. Можно перейти дальше."
-                      : step === 3
-                        ? "В этой категории пока нет подходящих органов. Посмотри другую категорию или освободи слот."
-                        : "Подходящих органов нет. Убери лишний орган или измени шасси."}
-                  </p>
-                )}
-                {filteredParts.map((part) => (
-                  <button
-                    key={part.id}
-                    className="part-card addable"
-                    onClick={() => addPart(part)}
-                    title={`Добавить «${part.name}» в слот «${socketLabels[part.socket]}»`}
-                  >
-                    <span className={`part-color ${part.category.toLowerCase()}`} />
-                    <span className="part-name">
-                      {part.name}
-                      {part.flags.includes("BRAIN") && <span className="part-badge">мозг</span>}
-                      {part.flags.includes("HEART") && <span className="part-badge">сердце</span>}
-                    </span>
-                    <span className="part-meta">
-                      {socketLabels[part.socket]} · {part.cost} BM · {part.massKg} кг
-                    </span>
-                    <span className="part-description">{part.description}</span>
-                    <span className="part-visibility-row">
-                      <span
-                        className={
-                          part.visual.visibility === "EXTERNAL"
-                            ? "part-visibility external"
-                            : "part-visibility internal"
-                        }
-                      >
-                        {part.visual.visibility === "EXTERNAL" ? "снаружи" : "внутри"}
-                      </span>
-                      <span className="part-add">+ Добавить</span>
-                    </span>
-                  </button>
-                ))}
-              </div>
+              <PartList
+                parts={filteredParts}
+                onAdd={addPart}
+                emptyText={
+                  step !== 3 && steps[step]?.done
+                    ? "Все обязательные органы для этого шага уже установлены. Можно перейти дальше."
+                    : step === 3
+                      ? "В этой категории пока нет подходящих органов. Посмотри другую категорию или освободи слот."
+                      : "Подходящих органов нет. Убери лишний орган или измени шасси."
+                }
+              />
 
               {step !== 1 && (
                 <label className="toggle" title="Парные конечности добавляются слева и справа">
@@ -653,6 +658,49 @@ export default function LabScreen({ catalog, onSaved, onBattle }: LabScreenProps
                 <div className="notice">Чтобы сохранить: {friendlyIssues.join(" · ")}</div>
               )}
               {validating && <p className="muted">Проверяем…</p>}
+
+              <div className="wizard-section wizard-construction">
+                <div className="wizard-construction-head">
+                  <h3>Конструкция</h3>
+                  <button className="secondary small" onClick={() => setConstructionOpen((value) => !value)}>
+                    {constructionOpen ? "Свернуть" : "Изменить органы"}
+                  </button>
+                </div>
+                <p className="muted small-text">
+                  Убирай органы на схеме и добавляй новые из любой категории. Шаблон — только стартовая точка.
+                  Для замены ног на крылья нужен «Летун» или «Титан» и свободный верхний слот.
+                </p>
+                {constructionOpen && (
+                  <>
+                    <div className="wizard-category-tabs">
+                      {constructionCategories.map((category) => (
+                        <button
+                          key={category}
+                          className={constructionCategory === category ? "chip active" : "chip"}
+                          onClick={() => setConstructionCategory(category)}
+                        >
+                          {categoryLabels[category]}
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      className="search"
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                      placeholder="Найти орган…"
+                    />
+                    <PartList
+                      parts={constructionParts}
+                      onAdd={addPart}
+                      emptyText="В этой категории нет подходящих органов. Посмотри другую категорию или освободи слот."
+                    />
+                    <label className="toggle" title="Парные конечности добавляются слева и справа">
+                      <input type="checkbox" checked={mirror} onChange={(event) => setMirror(event.target.checked)} />
+                      Симметричные конечности
+                    </label>
+                  </>
+                )}
+              </div>
 
               <div className="wizard-section">
                 <h3>Поведение</h3>
@@ -891,7 +939,6 @@ function canAddPart(
 function canRemovePart(
   index: number,
   genome: Genome,
-  chassis: Catalog["chassis"][number] | undefined,
   partsById: Map<string, PartDefinition>,
   stats: DerivedStats | undefined
 ): AddCheck {
@@ -922,10 +969,6 @@ function canRemovePart(
   });
   if (!hasHeart) {
     return { allowed: false, reason: "Нельзя убрать единственный источник энергии." };
-  }
-  const hasLegs = remaining.some((placement) => (partsById.get(placement.partId)?.traction ?? 0) > 0);
-  if (chassis?.isStatic !== true && !hasLegs) {
-    return { allowed: false, reason: "Нельзя убрать последнюю ногу или крылья." };
   }
   return { allowed: true, reason: "" };
 }
@@ -1038,6 +1081,53 @@ function upgradeLabel(stat: UpgradeStat): string {
 
 function unique(values: string[]): string[] {
   return Array.from(new Set(values));
+}
+
+function PartList({
+  parts,
+  onAdd,
+  emptyText
+}: {
+  parts: PartDefinition[];
+  onAdd: (part: PartDefinition) => void;
+  emptyText: string;
+}) {
+  return (
+    <div className="wizard-part-list">
+      {parts.length === 0 && <p className="muted">{emptyText}</p>}
+      {parts.map((part) => (
+        <button
+          key={part.id}
+          className="part-card addable"
+          onClick={() => onAdd(part)}
+          title={`Добавить «${part.name}» в слот «${socketLabels[part.socket]}»`}
+        >
+          <span className={`part-color ${part.category.toLowerCase()}`} />
+          <span className="part-name">
+            {part.name}
+            {part.flags.includes("BRAIN") && <span className="part-badge">мозг</span>}
+            {part.flags.includes("HEART") && <span className="part-badge">сердце</span>}
+          </span>
+          <span className="part-meta">
+            {socketLabels[part.socket]} · {part.cost} BM · {part.massKg} кг
+          </span>
+          <span className="part-description">{part.description}</span>
+          <span className="part-visibility-row">
+            <span
+              className={
+                part.visual.visibility === "EXTERNAL"
+                  ? "part-visibility external"
+                  : "part-visibility internal"
+              }
+            >
+              {part.visual.visibility === "EXTERNAL" ? "снаружи" : "внутри"}
+            </span>
+            <span className="part-add">+ Добавить</span>
+          </span>
+        </button>
+      ))}
+    </div>
+  );
 }
 
 function ReadinessRow({ label, done, hint }: { label: string; done: boolean; hint: string }) {

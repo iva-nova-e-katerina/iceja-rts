@@ -89,7 +89,9 @@ data class CreatureView(
     val stats: DerivedStats,
     val validation: ValidationResult,
     val version: Int,
-    val createdAt: Long
+    val createdAt: Long,
+    val experience: Int = 0,
+    val isTemplate: Boolean = false
 )
 
 @Serializable
@@ -121,6 +123,28 @@ data class ArmyView(
     val units: List<ArmyUnitView>,
     val totalCostBm: Int,
     val creatureCount: Int
+)
+
+@Serializable
+data class MoveOrderRequest(
+    val entityId: Int,
+    val x: Int,
+    val y: Int
+)
+
+@Serializable
+data class MoveOrderResponse(
+    val applied: Boolean
+)
+
+@Serializable
+data class WhipRequest(
+    val entityId: Int
+)
+
+@Serializable
+data class WhipResponse(
+    val applied: Boolean
 )
 
 @Serializable

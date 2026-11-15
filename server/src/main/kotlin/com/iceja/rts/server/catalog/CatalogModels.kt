@@ -290,6 +290,7 @@ data class Ruleset(
     val creatureMaxCostBm: Int = 3_000,
     val matchDurationTicks: Int = 14_400,
     val overtimeTicks: Int = 3_600,
+    val maxExperience: Int = 1_000,
     val hiveHp: Int = 3_000,
     val hiveRadiusMm: Int = 4_000,
     val hiveArmor: Int = 50

@@ -7,6 +7,7 @@ import com.iceja.rts.server.catalog.PartFlag
 import com.iceja.rts.server.genome.Genome
 import com.iceja.rts.server.genome.PresetGraphs
 import com.iceja.rts.server.genome.WeaponStats
+import java.util.concurrent.ConcurrentLinkedQueue
 
 class Simulation(
     val matchId: String,
@@ -59,6 +60,10 @@ class Simulation(
     private val eventBuffer = mutableListOf<SimEvent>()
     private val telepathicAlerts = arrayOfNulls<TelepathicAlert>(2)
     private val lastTelepathyTick = IntArray(2)
+    private val lastHiveCallTick = IntArray(2)
+    private val enemyHiveKnown = BooleanArray(2)
+    private val pendingWhips = ConcurrentLinkedQueue<Pair<Int, Int>>()
+    private val pendingMoveOrders = ConcurrentLinkedQueue<MoveOrder>()
     private val damageByPlayer = LongArray(2)
     private val killsByPlayer = IntArray(2)
     private val lossesByPlayer = IntArray(2)
@@ -84,6 +89,32 @@ class Simulation(
 
     fun creatures(): List<Creature> = creatures
 
+    fun livingCreatures(ownerId: Int): List<Creature> =
+        creatures.filter { it.alive && it.ownerId == ownerId }
+
+    fun moveCreature(entityId: Int, ownerId: Int, targetX: Int, targetY: Int): Boolean {
+        val target = creatureById(entityId) ?: return false
+        if (!target.alive || target.ownerId != ownerId) {
+            return false
+        }
+        pendingMoveOrders += MoveOrder(
+            entityId = entityId,
+            ownerId = ownerId,
+            x = targetX.coerceIn(1_000, mapWidth - 1_000),
+            y = targetY.coerceIn(1_000, mapHeight - 1_000)
+        )
+        return true
+    }
+
+    fun whipCreature(entityId: Int, ownerId: Int): Boolean {
+        val target = creatureById(entityId) ?: return false
+        if (!target.alive || target.ownerId != ownerId) {
+            return false
+        }
+        pendingWhips += entityId to ownerId
+        return true
+    }
+
     fun projectiles(): List<Projectile> = projectiles
 
     fun corpses(): List<Corpse> = corpses
@@ -100,6 +131,10 @@ class Simulation(
             finishTimeout()
             return
         }
+        processMoveOrders()
+        processWhipCommands()
+        creatures.filter { it.alive && it.painTicks > 0 }.forEach { it.painTicks -= 1 }
+        creatures.filter { it.alive && it.manualOrderTicks > 0 }.forEach { it.manualOrderTicks -= 1 }
         updateAi()
         updateMovement()
         resolveCollisions()
@@ -262,7 +297,8 @@ class Simulation(
                     stats = unit.stats,
                     x = x,
                     y = y,
-                    canFly = GameCatalog.chassisById[unit.genome.chassisId]?.canFly ?: false
+                    canFly = GameCatalog.chassisById[unit.genome.chassisId]?.canFly ?: false,
+                    sourceCreatureId = unit.sourceCreatureId
                 )
                 creature.desiredX = x
                 creature.desiredY = y
@@ -300,6 +336,51 @@ class Simulation(
             val shouldDecide = creature.lastDecisionTick == 0 ||
                 (creature.id + tick) % 3 == 0
             if (!shouldDecide) {
+                return@forEach
+            }
+            if (creature.manualOrderTicks > 0) {
+                val distanceSq = IntegerMath.distanceSq(
+                    creature.x,
+                    creature.y,
+                    creature.manualTargetX,
+                    creature.manualTargetY
+                )
+                if (distanceSq <= 50L * 50) {
+                    creature.manualOrderTicks = 0
+                } else {
+                    creature.aiMode = "MANUAL"
+                    creature.aiReason = "PLAYER_ORDER"
+                    creature.aiNodeId = "player:move-order"
+                    creature.targetId = 0
+                    creature.attackTargetId = 0
+                    creature.attackHive = false
+                    creature.scavengeTargetId = 0
+                    creature.desiredX = creature.manualTargetX
+                    creature.desiredY = creature.manualTargetY
+                    creature.lastDecisionTick = tick
+                    return@forEach
+                }
+            }
+            if (creature.painTicks > 0) {
+                val distanceSq = IntegerMath.distanceSq(
+                    creature.x,
+                    creature.y,
+                    creature.painTargetX,
+                    creature.painTargetY
+                )
+                if (distanceSq <= 2_000L * 2_000) {
+                    choosePainTarget(creature)
+                }
+                creature.aiMode = "PAIN"
+                creature.aiReason = "ELECTRO_WHIP"
+                creature.aiNodeId = "pain:electro-whip"
+                creature.targetId = 0
+                creature.attackTargetId = 0
+                creature.attackHive = false
+                creature.scavengeTargetId = 0
+                creature.desiredX = creature.painTargetX
+                creature.desiredY = creature.painTargetY
+                creature.lastDecisionTick = tick
                 return@forEach
             }
             val friends = creatures.filter { it.ownerId == creature.ownerId }
@@ -349,6 +430,10 @@ class Simulation(
             val ownHive = hiveFor(creature.ownerId)
             val enemyHive = enemyHiveFor(creature.ownerId)
             val enemyHiveVisible = Vision.canSeeHive(creature, enemyHive, navigation)
+            if (scout && enemyHiveVisible && !enemyHiveKnown[ownerIndex]) {
+                enemyHiveKnown[ownerIndex] = true
+                emit("HIVE_FOUND", creature.id, enemyHive.id, enemyHive.x, enemyHive.y, 0, "ENEMY_HIVE")
+            }
             val behaviorGraph = creature.genome.behavior.graph
             val decision = if (behaviorGraph == null || !usesCustomGraph(creature)) {
                 BehaviorEngine.decide(
@@ -385,6 +470,7 @@ class Simulation(
             val alreadyEngaged = creature.attackTargetId != 0 ||
                 decision.attackTargetId != 0
             val damageDecision = if (
+                !scout &&
                 recentAttacker != null &&
                 !alreadyEngaged &&
                 visibleEnemies.none { it.id == recentAttacker.id }
@@ -403,6 +489,7 @@ class Simulation(
                 null
             }
             val calledDecision = if (
+                !scout &&
                 alert != null &&
                 visibleEnemies.isEmpty() &&
                 decision.mode != "SURVIVE" &&
@@ -421,13 +508,54 @@ class Simulation(
             } else {
                 decision
             }
-            val effectiveDecision = lastStandDecision(creature, visibleEnemies) ?: damageDecision ?: calledDecision
+            val healThreshold = if (scout) 80 else 35
+            val criticallyWounded = creature.hp * 100 / creature.stats.maxHp.coerceAtLeast(1) <= healThreshold
+            val nectarPoint = if (criticallyWounded) nearestNectar(creature) else null
+            val standDecision = if (scout) null else lastStandDecision(creature, visibleEnemies)
+            val healDecision = if (standDecision == null && nectarPoint != null) {
+                AiDecision(
+                    mode = "HEAL",
+                    reason = "SEEK_NECTAR",
+                    targetId = 0,
+                    moveTarget = Vec2(nectarPoint.x, nectarPoint.y),
+                    attackTargetId = 0,
+                    attackHive = false,
+                    fleeFrom = null,
+                    nodeId = "survival:nectar"
+                )
+            } else {
+                null
+            }
+            val effectiveDecision = standDecision ?: healDecision ?: damageDecision ?: calledDecision
+            val assaultDecision = if (
+                enemyHiveKnown[ownerIndex] &&
+                !scout &&
+                visibleEnemies.isEmpty() &&
+                effectiveDecision.mode == "PATROL"
+            ) {
+                AiDecision(
+                    mode = "SIEGE",
+                    reason = "HIVE_KNOWN",
+                    targetId = enemyHive.id,
+                    moveTarget = Vec2(enemyHive.x, enemyHive.y),
+                    attackTargetId = enemyHive.id,
+                    attackHive = true,
+                    fleeFrom = null,
+                    nodeId = "team:hive-assault"
+                )
+            } else {
+                effectiveDecision
+            }
             val scoutDecision = when {
                 outnumbered -> AiDecision(
                     mode = "RETREAT",
                     reason = "OUTNUMBERED",
                     targetId = 0,
-                    moveTarget = Vec2(ownHive.x, ownHive.y),
+                    moveTarget = if (criticallyWounded && nectarPoint != null) {
+                        Vec2(nectarPoint.x, nectarPoint.y)
+                    } else {
+                        Vec2(ownHive.x, ownHive.y)
+                    },
                     attackTargetId = 0,
                     attackHive = false,
                     fleeFrom = null,
@@ -450,7 +578,7 @@ class Simulation(
                         )
                     }
                 }
-                else -> effectiveDecision
+                else -> assaultDecision
             }
             val objectivePoint = if (scoutDecision.mode == "PATROL") {
                 nearestObjective(creature)
@@ -545,13 +673,17 @@ class Simulation(
         if (tick % GameCatalog.ruleset.tickRate != 0) {
             return
         }
-        objectives.filter { it.ownerId >= 0 }.forEach { point ->
+        objectives.forEach { point ->
             val owner = point.ownerId
-            controlScores[owner] += point.scorePerSecond
-            creatures.filter { it.alive && it.ownerId == owner }.forEach { creature ->
+            if (owner >= 0) {
+                controlScores[owner] += point.scorePerSecond
+            }
+            creatures.filter { it.alive }.forEach { creature ->
                 val distance = IntegerMath.distance(creature.x, creature.y, point.x, point.y)
                 if (distance <= point.radiusMm + creature.stats.radiusMm) {
-                    creature.hp = (creature.hp + point.healPerSecond).coerceAtMost(creature.stats.maxHp)
+                    val bonus = if (owner >= 0 && creature.ownerId == owner) 1 else 0
+                    val healed = point.healPerSecond + bonus
+                    creature.hp = (creature.hp + healed).coerceAtMost(creature.stats.maxHp)
                 }
             }
         }
@@ -574,6 +706,74 @@ class Simulation(
                 killCreature(creature, -1, 0)
             }
         }
+    }
+
+    private fun processMoveOrders() {
+        while (true) {
+            val order = pendingMoveOrders.poll() ?: break
+            val creature = creatureById(order.entityId) ?: continue
+            if (!creature.alive || creature.ownerId != order.ownerId) {
+                continue
+            }
+            val adjusted = adjustedMoveTarget(creature, order.x, order.y)
+            creature.manualTargetX = adjusted.x
+            creature.manualTargetY = adjusted.y
+            creature.manualOrderTicks = GameCatalog.ruleset.tickRate * 30
+        }
+    }
+
+    private fun adjustedMoveTarget(creature: Creature, targetX: Int, targetY: Int): Vec2 {
+        val enemyHive = hives.firstOrNull { hive ->
+            hive.ownerId != creature.ownerId &&
+                IntegerMath.distanceSq(hive.x, hive.y, targetX, targetY) <=
+                (hive.radiusMm + 500L) * (hive.radiusMm + 500)
+        } ?: return Vec2(
+            targetX.coerceIn(1_000, mapWidth - 1_000),
+            targetY.coerceIn(1_000, mapHeight - 1_000)
+        )
+        var dx = targetX - enemyHive.x
+        var dy = targetY - enemyHive.y
+        if (dx == 0 && dy == 0) {
+            dx = creature.x - enemyHive.x
+            dy = creature.y - enemyHive.y
+        }
+        val length = IntegerMath.isqrt(dx.toLong() * dx + dy.toLong() * dy).coerceAtLeast(1)
+        val surfaceDistance = enemyHive.radiusMm + creature.stats.radiusMm + 200
+        return Vec2(
+            (enemyHive.x + dx * surfaceDistance / length).coerceIn(1_000, mapWidth - 1_000),
+            (enemyHive.y + dy * surfaceDistance / length).coerceIn(1_000, mapHeight - 1_000)
+        )
+    }
+
+    private fun processWhipCommands() {
+        while (true) {
+            val command = pendingWhips.poll() ?: break
+            val creature = creatureById(command.first) ?: continue
+            if (!creature.alive || creature.ownerId != command.second) {
+                continue
+            }
+            creature.painTicks = GameCatalog.ruleset.tickRate * 5
+            choosePainTarget(creature)
+            emit("WHIP", 0, creature.id, creature.x, creature.y, 0, "ELECTRO_WHIP")
+        }
+    }
+
+    private fun choosePainTarget(creature: Creature) {
+        val directions = listOf(
+            1 to 0,
+            -1 to 0,
+            0 to 1,
+            0 to -1,
+            1 to 1,
+            1 to -1,
+            -1 to 1,
+            -1 to -1
+        )
+        val (dx, dy) = directions[aiRandom.nextInt(directions.size)]
+        val distance = 18_000 + aiRandom.nextInt(14_000)
+        val length = if (dx == 0 || dy == 0) 1 else 1
+        creature.painTargetX = (creature.x + dx * distance / length).coerceIn(1_000, mapWidth - 1_000)
+        creature.painTargetY = (creature.y + dy * distance / length).coerceIn(1_000, mapHeight - 1_000)
     }
 
     private fun isScout(creature: Creature): Boolean =
@@ -602,6 +802,15 @@ class Simulation(
         creature.scoutTargetY = next.y
         return next
     }
+
+    private fun nearestNectar(creature: Creature): ObjectivePoint? =
+        objectives
+            .asSequence()
+            .minWithOrNull(
+                compareBy<ObjectivePoint> {
+                    IntegerMath.distanceSq(creature.x, creature.y, it.x, it.y)
+                }.thenBy { it.id }
+            )
 
     private fun nearestObjective(creature: Creature): ObjectivePoint? =
         objectives
@@ -680,7 +889,10 @@ class Simulation(
                     creature.aiMode == "COUNTERATTACK" ||
                     creature.aiMode == "CAPTURE" ||
                     creature.aiMode == "SCOUT" ||
-                    creature.aiMode == "RETREAT"
+                    creature.aiMode == "RETREAT" ||
+                    creature.aiMode == "HEAL" ||
+                    creature.aiMode == "PAIN" ||
+                    creature.aiMode == "MANUAL"
                 ) {
                     creature.angle = (creature.angle + 384) and 0xFFFF
                 }
@@ -1145,6 +1357,27 @@ class Simulation(
             }
     }
 
+    private fun telepathicHiveCall(hive: Hive, sourceOwner: Int, sourceId: Int) {
+        if (hive.ownerId == sourceOwner) {
+            return
+        }
+        val ownerIndex = hive.ownerId.coerceIn(0, 1)
+        telepathicAlerts[ownerIndex] = TelepathicAlert(
+            ownerId = hive.ownerId,
+            sourceId = hive.id,
+            x = hive.x,
+            y = hive.y,
+            targetId = sourceId,
+            expiresTick = tick + 240,
+            updatedTick = tick
+        )
+        if (lastHiveCallTick[ownerIndex] != 0 && tick - lastHiveCallTick[ownerIndex] < 300) {
+            return
+        }
+        lastHiveCallTick[ownerIndex] = tick
+        emit("TELEPATHY", hive.id, sourceId, hive.x, hive.y, 0, "HIVE_CALL")
+    }
+
     private fun recordDamage(target: Creature, sourceId: Int) {
         target.lastDamageTick = tick
         if (sourceId <= 0 || sourceId == target.id) {
@@ -1182,6 +1415,7 @@ class Simulation(
         damage = damage.coerceAtLeast(1)
         target.hp -= damage
         recordDamage(target, sourceId)
+        creatureById(sourceId)?.let { source -> source.damageDealt += damage.toLong() }
         damageByPlayer[sourceOwner] = damageByPlayer[sourceOwner] + damage
         emit("HIT", sourceId, target.id, target.x, target.y, damage, damageType.name)
         if (target.hp <= 0) {
@@ -1223,6 +1457,7 @@ class Simulation(
         hive.hp -= damage
         damageByPlayer[sourceOwner] = damageByPlayer[sourceOwner] + damage
         emit("OBJECTIVE", sourceId, hive.id, hive.x, hive.y, damage, damageType.name)
+        telepathicHiveCall(hive, sourceOwner, sourceId)
         if (hive.hp <= 0) {
             hive.hp = 0
             hive.alive = false
@@ -1354,6 +1589,9 @@ class Simulation(
         target.alive = false
         target.hp = 0
         target.state = EntityState.DEAD
+        if (sourceId > 0) {
+            creatureById(sourceId)?.let { source -> source.kills += 1 }
+        }
         lossesByPlayer[target.ownerId] += 1
         if (sourceOwner >= 0) {
             killsByPlayer[sourceOwner] += 1
@@ -1385,39 +1623,14 @@ class Simulation(
             !firstHiveAlive -> finish(1, "HIVE_DESTROYED")
             !secondHiveAlive -> finish(0, "HIVE_DESTROYED")
             else -> {
-                val firstAlive = creatures.any { it.alive && it.ownerId == 0 }
-                val secondAlive = creatures.any { it.alive && it.ownerId == 1 }
-                when {
-                    !firstAlive && !secondAlive -> finish(-1, "ANNIHILATION")
-                    !firstAlive -> finish(1, "ANNIHILATION")
-                    !secondAlive -> finish(0, "ANNIHILATION")
-                    tick >= config.maxTicks + config.overtimeTicks -> finishTimeout()
+                if (tick >= config.maxTicks + config.overtimeTicks) {
+                    finishTimeout()
                 }
             }
         }
     }
 
     private fun finishTimeout() {
-        val firstHiveHp = hives[0].hp
-        val secondHiveHp = hives[1].hp
-        if (firstHiveHp != secondHiveHp) {
-            finish(if (firstHiveHp > secondHiveHp) 0 else 1, "TIMEOUT_HIVE_HP")
-            return
-        }
-        val firstCreatureHp = creatures.filter { it.ownerId == 0 }.sumOf { it.hp }
-        val secondCreatureHp = creatures.filter { it.ownerId == 1 }.sumOf { it.hp }
-        if (firstCreatureHp != secondCreatureHp) {
-            finish(if (firstCreatureHp > secondCreatureHp) 0 else 1, "TIMEOUT_CREATURE_HP")
-            return
-        }
-        if (controlScores[0] != controlScores[1]) {
-            finish(if (controlScores[0] > controlScores[1]) 0 else 1, "TIMEOUT_OBJECTIVES")
-            return
-        }
-        if (damageByPlayer[0] != damageByPlayer[1]) {
-            finish(if (damageByPlayer[0] > damageByPlayer[1]) 0 else 1, "TIMEOUT_DAMAGE")
-            return
-        }
         finish(-1, "TIMEOUT_DRAW")
     }
 
