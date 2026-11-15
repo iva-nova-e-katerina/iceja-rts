@@ -974,11 +974,25 @@ object GameCatalog {
     val maps: List<MapDefinition> = listOf(
         MapDefinition(
             id = "duel-arena",
-            name = "Арена дуэли"
+            name = "Арена дуэли",
+            theme = MapTheme(
+                background = 0x070B0D,
+                grid = 0x12242A,
+                obstacle = 0x1B2A30,
+                obstacleStroke = 0x2F4A50,
+                border = 0x2D5962
+            )
         ),
         MapDefinition(
             id = "pillars",
             name = "Колонны",
+            theme = MapTheme(
+                background = 0x080D14,
+                grid = 0x14243A,
+                obstacle = 0x1C2D40,
+                obstacleStroke = 0x355A70,
+                border = 0x3A6A80
+            ),
             obstacles = listOf(
                 Obstacle(38_000, 38_000, 8_000, 8_000),
                 Obstacle(82_000, 82_000, 8_000, 8_000),
@@ -990,6 +1004,13 @@ object GameCatalog {
         MapDefinition(
             id = "acid-marsh",
             name = "Кислотное болото",
+            theme = MapTheme(
+                background = 0x080F0B,
+                grid = 0x16301F,
+                obstacle = 0x223A25,
+                obstacleStroke = 0x3C5A32,
+                border = 0x4C7A3A
+            ),
             obstacles = listOf(
                 Obstacle(30_000, 50_000, 10_000, 6_000),
                 Obstacle(88_000, 72_000, 10_000, 6_000),

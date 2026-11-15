@@ -15,16 +15,6 @@ import type {
 import BehaviorEditor from "./BehaviorEditor";
 import CreatureSchematic from "./CreatureSchematic";
 
-const categories: PartCategory[] = [
-  "CORE",
-  "LOCOMOTION",
-  "SENSOR",
-  "MELEE",
-  "RANGED",
-  "DEFENSE",
-  "UTILITY"
-];
-
 const categoryLabels: Record<PartCategory, string> = {
   CORE: "Тело",
   LOCOMOTION: "Движение",
@@ -105,7 +95,8 @@ export default function LabScreen({ catalog, onSaved, onBattle }: LabScreenProps
   const [validation, setValidation] = useState<ValidationResult | null>(initialTemplate.validation);
   const [validating, setValidating] = useState(false);
   const [search, setSearch] = useState("");
-  const [category, setCategory] = useState<PartCategory | "ALL">("ALL");
+  const [step, setStep] = useState(0);
+  const [wizardCategory, setWizardCategory] = useState<PartCategory>("SENSOR");
   const [mirror, setMirror] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -158,6 +149,10 @@ export default function LabScreen({ catalog, onSaved, onBattle }: LabScreenProps
     localStorage.setItem("iceja.labHelpV2Seen", helpOpen ? "0" : "1");
   }, [helpOpen]);
 
+  useEffect(() => {
+    setSearch("");
+  }, [step, wizardCategory]);
+
   const hasBrain = hasFlag(genome, "BRAIN", partsById);
   const hasMetabolism = hasFlag(genome, "HEART", partsById) || hasFlag(genome, "METABOLIC", partsById);
   const hasLocomotion = genome.parts.some((placement) => {
@@ -188,8 +183,15 @@ export default function LabScreen({ catalog, onSaved, onBattle }: LabScreenProps
     .filter((part) => canAddPart(part, genome, chassis, mirror, catalog, partsById, stats).allowed)
     .sort((left, right) => partPriority(left) - partPriority(right) || left.cost - right.cost);
 
+  const stepCategories: PartCategory[] = step === 1
+    ? ["CORE"]
+    : step === 2
+      ? ["LOCOMOTION"]
+      : step === 3
+        ? [wizardCategory]
+        : [];
   const filteredParts = addableParts.filter((part) => {
-    const categoryMatches = category === "ALL" || part.category === category;
+    const categoryMatches = stepCategories.includes(part.category);
     const needle = search.trim().toLowerCase();
     const searchMatches =
       needle === "" ||
@@ -217,9 +219,38 @@ export default function LabScreen({ catalog, onSaved, onBattle }: LabScreenProps
     { label: "Основа", done: genome.name.trim().length >= 3 && chassis !== undefined },
     { label: "Мозг и сердце", done: hasBrain && hasMetabolism },
     { label: "Движение", done: staticChassis || hasLocomotion },
-    { label: "Глаза и оружие", done: hasSensor && hasWeapon },
+    { label: "Оружие и чувства", done: hasSensor && hasWeapon },
     { label: "Готово", done: canSave }
   ];
+  const stepTitles = [
+    "Основа",
+    "Мозг и сердце",
+    "Движение",
+    "Оружие и чувства",
+    "Готово"
+  ];
+  const stepHints = [
+    "Выбери шасси, имя и шаблон. Можно загрузить готовую тварь и сразу перейти к проверке.",
+    "Добавь мозг, сердце и, если нужно, дополнительные узлы. Без них тварь не работает.",
+    "Добавь ноги, лапы или крылья. Для статичного шасси этот шаг пропускается.",
+    "Добавь глаза и оружие. Защита и полезные органы тоже здесь, но они необязательны.",
+    "Проверь тварь, настрой поведение и отправь её в бой."
+  ];
+  const canGoNext = step === 0
+    ? genome.name.trim().length >= 3 && chassis !== undefined
+    : step === 1
+      ? hasBrain && hasMetabolism
+      : step === 2
+        ? staticChassis || hasLocomotion
+        : true;
+  const highlightSockets: SocketType[] = step === 1
+    ? ["CORE"]
+    : step === 2
+      ? ["LEFT", "RIGHT", "TOP", "UNDER"]
+      : step === 3
+        ? ["FRONT", "BACK", "TOP", "UNDER", "LEFT", "RIGHT"]
+        : [];
+  const wizardCategories: PartCategory[] = ["SENSOR", "MELEE", "RANGED", "DEFENSE", "UTILITY"];
 
   function addPart(part: PartDefinition) {
     const check = canAddPart(part, genome, chassis, mirror, catalog, partsById, stats);
@@ -276,14 +307,19 @@ export default function LabScreen({ catalog, onSaved, onBattle }: LabScreenProps
     const template = catalog.templates.find((item) => item.genome.name === templateGenome.name);
     setValidation(template?.validation ?? null);
     setMessage(`Загружен шаблон «${templateLabels[templateGenome.name] ?? templateGenome.name}».`);
+    setStep(4);
   }
 
   function changeChassis(chassisId: string) {
+    if (chassisId === genome.chassisId) {
+      return;
+    }
     if (genome.parts.length > 0 && !window.confirm("Сменить шасси? Все органы будут убраны.")) {
       return;
     }
     setGenome((current) => ({ ...current, chassisId, parts: [] }));
-    setMessage("Шасси изменено. Собери существо заново или нажми «Собрать базовое».");
+    setMessage("Шасси изменено. Собери существо заново.");
+    setStep(1);
   }
 
   function startBlank() {
@@ -298,6 +334,7 @@ export default function LabScreen({ catalog, onSaved, onBattle }: LabScreenProps
       }
     });
     setMessage("Пустое существо. Нажми «Собрать базовое» или добавь органы вручную.");
+    setStep(0);
   }
 
   function buildBase() {
@@ -318,6 +355,7 @@ export default function LabScreen({ catalog, onSaved, onBattle }: LabScreenProps
     }
     setGenome(next);
     setMessage("Базовые органы добавлены. Можно сохранять или настроить детали.");
+    setStep(4);
   }
 
   async function quickBattle() {
@@ -357,16 +395,14 @@ export default function LabScreen({ catalog, onSaved, onBattle }: LabScreenProps
   }
 
   return (
-    <div className="lab-simple">
-      <header className="lab-intro">
+    <div className="lab-wizard">
+      <header className="wizard-header">
         <div>
           <span className="eyebrow">Лаборатория</span>
           <h1>Собери существо</h1>
-          <p>
-            По умолчанию уже собран боец. Нажми «Сразу в бой» или измени органы, если хочешь собрать своего.
-          </p>
+          <p>{stepHints[step]}</p>
         </div>
-        <div className="lab-intro-actions">
+        <div className="wizard-header-actions">
           <button
             className="primary"
             onClick={() => void quickBattle()}
@@ -381,147 +417,69 @@ export default function LabScreen({ catalog, onSaved, onBattle }: LabScreenProps
         </div>
       </header>
 
-      <div className="lab-steps">
-        {steps.map((step, index) => (
-          <div key={step.label} className={step.done ? "lab-step done" : "lab-step"}>
-            <span className="lab-step-number">{step.done ? "✓" : index + 1}</span>
-            <span>{step.label}</span>
-          </div>
+      <div className="wizard-progress">
+        {steps.map((item, index) => (
+          <button
+            key={item.label}
+            className={`wizard-step ${index === step ? "current" : ""} ${item.done ? "done" : ""}`}
+            onClick={() => setStep(index)}
+            title={`Перейти к шагу «${item.label}»`}
+          >
+            <span className="wizard-step-number">{item.done ? "✓" : index + 1}</span>
+            <span>{item.label}</span>
+          </button>
         ))}
       </div>
 
-      <div className="lab-simple-grid">
-        <aside className="panel add-panel">
-          <div className="panel-header">
-            <h2>Что добавить</h2>
-            <span className="muted">{filteredParts.length}</span>
-          </div>
-          <div className="next-hint" title={nextHint}>
-            <span>{nextHint}</span>
-            {nextPart !== null && (
-              <button className="primary small" onClick={() => addPart(nextPart)}>
-                + {nextPart.name}
-              </button>
-            )}
-          </div>
-          <input
-            className="search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Найти орган…"
-          />
-          <div className="chip-row">
-            <button className={category === "ALL" ? "chip active" : "chip"} onClick={() => setCategory("ALL")}>
-              Все
-            </button>
-            {categories.map((item) => (
-              <button
-                key={item}
-                className={category === item ? "chip active" : "chip"}
-                onClick={() => setCategory(item)}
-              >
-                {categoryLabels[item]}
-              </button>
-            ))}
-          </div>
-          <p className="muted small-text">Показаны только органы, которые подходят прямо сейчас.</p>
-          <div className="part-list">
-            {filteredParts.length === 0 && (
-              <p className="muted">Подходящих органов нет. Убери лишний орган или измени шасси.</p>
-            )}
-            {filteredParts.map((part) => (
-              <button
-                key={part.id}
-                className="part-card addable"
-                onClick={() => addPart(part)}
-                title={`Добавить «${part.name}» в слот «${socketLabels[part.socket]}»`}
-              >
-                <span className={`part-color ${part.category.toLowerCase()}`} />
-                <span className="part-name">
-                  {part.name}
-                  {part.flags.includes("BRAIN") && <span className="part-badge">мозг</span>}
-                  {part.flags.includes("HEART") && <span className="part-badge">сердце</span>}
-                </span>
-                <span className="part-meta">
-                  {socketLabels[part.socket]} · {part.cost} BM · {part.massKg} кг
-                </span>
-                <span className="part-description">{part.description}</span>
-                <span className="part-visibility-row">
-                  <span className={part.visual.visibility === "EXTERNAL" ? "part-visibility external" : "part-visibility internal"}>
-                    {part.visual.visibility === "EXTERNAL" ? "снаружи" : "внутри"}
-                  </span>
-                  <span className="part-add">+ Добавить</span>
-                </span>
-              </button>
-            ))}
-          </div>
-          <label className="toggle" title="Парные конечности добавляются слева и справа">
-            <input type="checkbox" checked={mirror} onChange={(event) => setMirror(event.target.checked)} />
-            Симметричные конечности
-          </label>
-        </aside>
+      {message !== null && <div className="notice wizard-message">{message}</div>}
 
-        <section className="panel build-panel">
-          <div className="build-quick-actions">
-            <button className="secondary small" onClick={startBlank} title="Очистить сборку и начать заново">
-              Новое существо
-            </button>
-            <button className="secondary small" onClick={buildBase} title="Добавить обязательные органы автоматически">
-              Собрать базовое
-            </button>
-          </div>
-          <div className="build-top">
-            <label>
-              Имя существа
-              <input
-                value={genome.name}
-                maxLength={24}
-                onChange={(event) => setGenome({ ...genome, name: event.target.value })}
-                placeholder="Например, Шип"
-              />
-            </label>
-            <label>
-              Шасси
-              <select value={genome.chassisId} onChange={(event) => changeChassis(event.target.value)}>
-                {catalog.chassis.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name} · {item.cost} BM
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Готовый шаблон
-              <select
-                value=""
-                onChange={(event) => {
-                  const template = catalog.templates.find((item) => item.genome.name === event.target.value);
-                  if (template !== undefined) {
-                    loadTemplate(template.genome);
-                  }
-                }}
-              >
-                <option value="">Загрузить шаблон</option>
-                {catalog.templates.map((template) => (
-                  <option key={template.id} value={template.genome.name}>
-                    {templateLabels[template.name] ?? template.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+      <div className="wizard-body">
+        <section className="panel wizard-stage">
+          <div className="wizard-stage-top">
+            <div>
+              <span className="eyebrow">Шаг {step + 1} из 5</span>
+              <h2>{stepTitles[step]}</h2>
+            </div>
+            <div className="wizard-stat-chips">
+              <span title="Здоровье">HP {stats?.maxHp ?? 0}</span>
+              <span title="Оценка урона в секунду">Урон {estimatedDps.toFixed(0)}</span>
+              <span title="Скорость">Скорость {speedMeters.toFixed(1)} м/с</span>
+              <span title="Стоимость">Цена {cost} BM</span>
+              <span className={validation?.valid === true ? "ready-chip done" : "ready-chip"}>
+                {validation?.valid === true ? "Готово" : "Собираем"}
+              </span>
+            </div>
           </div>
 
-          <div className="schematic-wrap simple">
+          <div className="schematic-wrap simple wizard-schematic">
             <CreatureSchematic
               genome={genome}
               chassis={chassis}
               partsById={partsById}
+              highlightSockets={highlightSockets}
               onRemove={removePart}
             />
-            <p className="hint">
-              Внутренние органы видны только здесь. В бою отображаются внешние: ноги, крылья, шипы, хвосты,
-              глаза и оружие.
-            </p>
+          </div>
+
+          <div className="installed-strip">
+            {genome.parts.length === 0 && <span className="muted">Пока ни одного органа</span>}
+            {genome.parts.map((placement, index) => {
+              const part = partsById.get(placement.partId);
+              if (part === undefined) {
+                return null;
+              }
+              return (
+                <button
+                  key={`${placement.partId}-${index}`}
+                  className={`installed-chip ${part.visual.visibility === "INTERNAL" ? "internal" : "external"}`}
+                  onClick={() => removePart(index)}
+                  title={`Убрать «${part.name}»`}
+                >
+                  {part.name}
+                  <span>×</span>
+                </button>
+              );
+            })}
           </div>
 
           <div className="socket-pills">
@@ -534,175 +492,286 @@ export default function LabScreen({ catalog, onSaved, onBattle }: LabScreenProps
               );
             })}
           </div>
-
-          <details className="advanced">
-            <summary>Поведение и улучшения (необязательно)</summary>
-            <div className="advanced-body">
-              <label>
-                Характер
-                <select
-                  value={genome.behavior.presetId}
-                  onChange={(event) =>
-                    setGenome({
-                      ...genome,
-                      behavior: {
-                        presetId: event.target.value,
-                        graph: graphForPreset(event.target.value)
-                      }
-                    })
-                  }
-                >
-                  {catalog.behaviorPresets.map((preset) => (
-                    <option key={preset.id} value={preset.id}>
-                      {preset.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button className="secondary" onClick={() => setBehaviorOpen(true)}>
-                Настроить граф поведения
-              </button>
-              <div className="upgrade-grid">
-                {catalog.upgrades.map((rule) => {
-                  const level = levelOf(rule.stat);
-                  return (
-                    <div key={rule.stat} className="upgrade-row">
-                      <span>{upgradeLabel(rule.stat)}</span>
-                      <div className="upgrade-controls">
-                        <button
-                          className="upgrade-button"
-                          onClick={() => adjustUpgrade(rule.stat, -1)}
-                          disabled={level === 0}
-                          title={`Уменьшить улучшение «${upgradeLabel(rule.stat)}»`}
-                        >
-                          −
-                        </button>
-                        <strong>{level}</strong>
-                        <button
-                          className="upgrade-button"
-                          onClick={() => adjustUpgrade(rule.stat, 1)}
-                          disabled={level >= rule.maxLevel}
-                          title={`Увеличить улучшение «${upgradeLabel(rule.stat)}»`}
-                        >
-                          +
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </details>
         </section>
 
-        <aside className="panel summary-panel">
-          <div className="panel-header">
-            <h2>Результат</h2>
-            <span className={validation?.valid === true ? "badge good" : "badge live"}>
-              {validation?.valid === true ? "Готово" : "Собираем"}
-            </span>
+        <aside className="panel wizard-panel">
+          <div className="wizard-panel-head">
+            <h2>{stepTitles[step]}</h2>
+            <span className="muted">Шаг {step + 1}</span>
           </div>
 
-          <div className="big-stats">
-            <div>
-              <span>Здоровье</span>
-              <strong>{stats?.maxHp ?? 0}</strong>
-            </div>
-            <div>
-              <span>Скорость</span>
-              <strong>{speedMeters.toFixed(1)} м/с</strong>
-            </div>
-            <div>
-              <span>Урон</span>
-              <strong>{estimatedDps.toFixed(0)}</strong>
-            </div>
-            <div>
-              <span>Цена</span>
-              <strong>{cost} BM</strong>
-            </div>
-          </div>
+          {step === 0 && (
+            <>
+              <label>
+                Имя существа
+                <input
+                  value={genome.name}
+                  maxLength={24}
+                  onChange={(event) => setGenome({ ...genome, name: event.target.value })}
+                  placeholder="Например, Шип"
+                />
+              </label>
 
-          <div className="readiness">
-            <h3>Что уже есть</h3>
-            <ReadinessRow label="Мозг" done={hasBrain} hint="Нужен, чтобы существо принимало решения" />
-            <ReadinessRow label="Сердце" done={hasMetabolism} hint="Даёт энергию" />
-            <ReadinessRow label="Движение" done={staticChassis || hasLocomotion} hint="Ноги, лапы или крылья" />
-            <ReadinessRow label="Глаза" done={hasSensor} hint="Помогают находить врага" />
-            <ReadinessRow label="Оружие" done={hasWeapon} hint="Без него существо не атакует" />
-          </div>
-
-          {friendlyIssues.length > 0 && (
-            <div className="notice">Чтобы сохранить: {friendlyIssues.join(" · ")}</div>
-          )}
-          {validating && <p className="muted">Проверяем…</p>}
-          {message !== null && <div className="notice">{message}</div>}
-
-          <div className="budget-block">
-            <div className="budget-header">
-              <span>Бюджет существа</span>
-              <strong>
-                {cost} / {catalog.ruleset.creatureMaxCostBm} BM
-              </strong>
-            </div>
-            <div className="bar">
-              <span
-                className={budgetPercent > 90 ? "bar-fill danger" : "bar-fill"}
-                style={{ width: `${budgetPercent}%` }}
-              />
-            </div>
-          </div>
-
-          <button
-            className="primary wide"
-            disabled={!canStartBattle}
-            onClick={() => void quickBattle()}
-            title={canStartBattle ? "Создать существо, армию и сразу открыть бой" : "Сначала заверши сборку"}
-          >
-            {startingBattle ? "Готовим бой…" : canStartBattle ? "Сразу в бой" : "Заверши сборку"}
-          </button>
-          <button
-            className="secondary wide"
-            disabled={!canSave}
-            onClick={() => void saveCreature()}
-            title="Сохранить существо в коллекцию и перейти к армии"
-          >
-            {saving ? "Сохраняем…" : "Сохранить в коллекцию"}
-          </button>
-          <button className="secondary wide" onClick={buildBase} title="Добавить недостающие базовые органы">
-            Собрать базовое
-          </button>
-
-          <details className="advanced">
-            <summary>Подробные характеристики</summary>
-            <div className="advanced-body">
-              <div className="stat-grid compact">
-                <Stat label="Масса" value={`${stats?.massKg ?? 0} кг`} />
-                <Stat label="Энергия" value={stats?.maxEnergy ?? 0} />
-                <Stat label="Контроль" value={`${stats?.controlLoad ?? 0}/${stats?.controlCapacity ?? 0}`} />
-                <Stat label="Обзор" value={`${((stats?.visionRangeMm ?? 0) / 1000).toFixed(0)} м`} />
-              </div>
-              <h3>Броня</h3>
-              <div className="armor-grid">
-                {stats !== undefined &&
-                  Object.entries(stats.armor).map(([type, value]) => (
-                    <div key={type} className="armor-row">
-                      <span>{armorLabel(type)}</span>
-                      <strong>{value}</strong>
-                    </div>
+              <div className="wizard-section">
+                <h3>Шасси</h3>
+                <div className="chassis-grid">
+                  {catalog.chassis.map((item) => (
+                    <button
+                      key={item.id}
+                      className={item.id === genome.chassisId ? "chassis-card selected" : "chassis-card"}
+                      onClick={() => changeChassis(item.id)}
+                      title={`${item.name}: ${item.cost} BM, ${item.hp} HP`}
+                    >
+                      <strong>{item.name}</strong>
+                      <span>
+                        {item.sizeClass} · {item.cost} BM · {item.hp} HP
+                      </span>
+                      <span className="muted">{item.sockets.length} сокетов</span>
+                    </button>
                   ))}
-              </div>
-              <h3>Оружие</h3>
-              {stats?.weapons.length === 0 && <p className="muted">Оружия пока нет.</p>}
-              {stats?.weapons.map((weapon, index) => (
-                <div key={`${weapon.partId}-${index}`} className="weapon-row">
-                  <span>{partsById.get(weapon.partId)?.name ?? weapon.partId}</span>
-                  <span className="muted">
-                    {weapon.damage} урона · {(weapon.rangeMm / 1000).toFixed(1)} м
-                  </span>
                 </div>
-              ))}
-            </div>
-          </details>
+              </div>
+
+              <div className="wizard-section">
+                <h3>Готовый шаблон</h3>
+                <p className="muted">Можно загрузить готовую тварь и сразу перейти к проверке.</p>
+                <div className="wizard-template-grid">
+                  {catalog.templates.map((template) => (
+                    <button
+                      key={template.id}
+                      className="template-button"
+                      onClick={() => loadTemplate(template.genome)}
+                      title={`Загрузить шаблон «${templateLabels[template.name] ?? template.name}»`}
+                    >
+                      <span>{templateLabels[template.name] ?? template.name}</span>
+                      <small>{template.validation.stats.costBm} BM</small>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="wizard-quick-actions">
+                <button className="secondary" onClick={startBlank}>
+                  Новое существо
+                </button>
+                <button className="secondary" onClick={buildBase}>
+                  Собрать базовое
+                </button>
+              </div>
+            </>
+          )}
+
+          {(step === 1 || step === 2 || step === 3) && (
+            <>
+              <div className="wizard-next-hint">{nextHint}</div>
+
+              {step === 3 && (
+                <div className="wizard-category-tabs">
+                  {wizardCategories.map((item) => (
+                    <button
+                      key={item}
+                      className={wizardCategory === item ? "chip active" : "chip"}
+                      onClick={() => setWizardCategory(item)}
+                    >
+                      {categoryLabels[item]}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <input
+                className="search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Найти орган…"
+              />
+              <p className="muted small-text">Показаны только органы, которые можно добавить сейчас.</p>
+
+              <div className="wizard-part-list">
+                {filteredParts.length === 0 && (
+                  <p className="muted">
+                    {step !== 3 && steps[step]?.done
+                      ? "Все обязательные органы для этого шага уже установлены. Можно перейти дальше."
+                      : step === 3
+                        ? "В этой категории пока нет подходящих органов. Посмотри другую категорию или освободи слот."
+                        : "Подходящих органов нет. Убери лишний орган или измени шасси."}
+                  </p>
+                )}
+                {filteredParts.map((part) => (
+                  <button
+                    key={part.id}
+                    className="part-card addable"
+                    onClick={() => addPart(part)}
+                    title={`Добавить «${part.name}» в слот «${socketLabels[part.socket]}»`}
+                  >
+                    <span className={`part-color ${part.category.toLowerCase()}`} />
+                    <span className="part-name">
+                      {part.name}
+                      {part.flags.includes("BRAIN") && <span className="part-badge">мозг</span>}
+                      {part.flags.includes("HEART") && <span className="part-badge">сердце</span>}
+                    </span>
+                    <span className="part-meta">
+                      {socketLabels[part.socket]} · {part.cost} BM · {part.massKg} кг
+                    </span>
+                    <span className="part-description">{part.description}</span>
+                    <span className="part-visibility-row">
+                      <span
+                        className={
+                          part.visual.visibility === "EXTERNAL"
+                            ? "part-visibility external"
+                            : "part-visibility internal"
+                        }
+                      >
+                        {part.visual.visibility === "EXTERNAL" ? "снаружи" : "внутри"}
+                      </span>
+                      <span className="part-add">+ Добавить</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              {step !== 1 && (
+                <label className="toggle" title="Парные конечности добавляются слева и справа">
+                  <input type="checkbox" checked={mirror} onChange={(event) => setMirror(event.target.checked)} />
+                  Симметричные конечности
+                </label>
+              )}
+            </>
+          )}
+
+          {step === 4 && (
+            <>
+              <div className="wizard-review">
+                <ReadinessRow label="Мозг" done={hasBrain} hint="Нужен для решений" />
+                <ReadinessRow label="Сердце" done={hasMetabolism} hint="Даёт энергию" />
+                <ReadinessRow label="Движение" done={staticChassis || hasLocomotion} hint="Ноги или крылья" />
+                <ReadinessRow label="Глаза" done={hasSensor} hint="Ищут врага" />
+                <ReadinessRow label="Оружие" done={hasWeapon} hint="Наносит урон" />
+              </div>
+
+              {friendlyIssues.length > 0 && (
+                <div className="notice">Чтобы сохранить: {friendlyIssues.join(" · ")}</div>
+              )}
+              {validating && <p className="muted">Проверяем…</p>}
+
+              <div className="wizard-section">
+                <h3>Поведение</h3>
+                <label>
+                  Характер
+                  <select
+                    value={genome.behavior.presetId}
+                    onChange={(event) =>
+                      setGenome({
+                        ...genome,
+                        behavior: {
+                          presetId: event.target.value,
+                          graph: graphForPreset(event.target.value)
+                        }
+                      })
+                    }
+                  >
+                    {catalog.behaviorPresets.map((preset) => (
+                      <option key={preset.id} value={preset.id}>
+                        {preset.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button className="secondary" onClick={() => setBehaviorOpen(true)}>
+                  Настроить граф поведения
+                </button>
+              </div>
+
+              <div className="wizard-section">
+                <h3>Улучшения</h3>
+                <div className="upgrade-grid">
+                  {catalog.upgrades.map((rule) => {
+                    const level = levelOf(rule.stat);
+                    return (
+                      <div key={rule.stat} className="upgrade-row">
+                        <span>{upgradeLabel(rule.stat)}</span>
+                        <div className="upgrade-controls">
+                          <button
+                            className="upgrade-button"
+                            onClick={() => adjustUpgrade(rule.stat, -1)}
+                            disabled={level === 0}
+                            title={`Уменьшить улучшение «${upgradeLabel(rule.stat)}»`}
+                          >
+                            −
+                          </button>
+                          <strong>{level}</strong>
+                          <button
+                            className="upgrade-button"
+                            onClick={() => adjustUpgrade(rule.stat, 1)}
+                            disabled={level >= rule.maxLevel}
+                            title={`Увеличить улучшение «${upgradeLabel(rule.stat)}»`}
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="budget-block">
+                <div className="budget-header">
+                  <span>Бюджет существа</span>
+                  <strong>
+                    {cost} / {catalog.ruleset.creatureMaxCostBm} BM
+                  </strong>
+                </div>
+                <div className="bar">
+                  <span
+                    className={budgetPercent > 90 ? "bar-fill danger" : "bar-fill"}
+                    style={{ width: `${budgetPercent}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="wizard-final-actions">
+                <button
+                  className="primary wide"
+                  disabled={!canStartBattle}
+                  onClick={() => void quickBattle()}
+                  title={canStartBattle ? "Создать существо, армию и сразу открыть бой" : "Сначала заверши сборку"}
+                >
+                  {startingBattle ? "Готовим бой…" : canStartBattle ? "Сразу в бой" : "Заверши сборку"}
+                </button>
+                <button
+                  className="secondary wide"
+                  disabled={!canSave}
+                  onClick={() => void saveCreature()}
+                  title="Сохранить существо в коллекцию"
+                >
+                  {saving ? "Сохраняем…" : "Сохранить в коллекцию"}
+                </button>
+                <button className="secondary wide" onClick={buildBase}>
+                  Собрать базовое
+                </button>
+              </div>
+            </>
+          )}
+
+          <div className="wizard-footer">
+            {step > 0 && (
+              <button className="secondary" onClick={() => setStep(step - 1)}>
+                Назад
+              </button>
+            )}
+            {step < 4 && (
+              <button
+                className="primary"
+                onClick={() => setStep(step + 1)}
+                disabled={!canGoNext}
+                title={canGoNext ? "Перейти к следующему шагу" : "Заверши текущий шаг"}
+              >
+                Далее
+              </button>
+            )}
+            {step === 4 && <span className="muted">Готово. Можно сохранять или в бой.</span>}
+          </div>
         </aside>
       </div>
 
@@ -710,16 +779,17 @@ export default function LabScreen({ catalog, onSaved, onBattle }: LabScreenProps
         <div className="help-modal" role="dialog" aria-modal="true">
           <div className="help-card">
             <span className="eyebrow">Как это работает</span>
-            <h2>Существо за четыре шага</h2>
+            <h2>Существо за пять шагов</h2>
             <ol>
-              <li><strong>Выбери шасси.</strong> Это тело: от него зависят слоты и прочность.</li>
-              <li><strong>Добавь мозг, сердце и движение.</strong> Без них существо не работает.</li>
-              <li><strong>Добавь глаза и оружие.</strong> Глаза ищут врага, оружие наносит урон.</li>
-              <li><strong>Нажми «Сохранить существо».</strong> Потом собери армию и запусти бой.</li>
+              <li><strong>Основа.</strong> Выбери шасси, имя или готовый шаблон.</li>
+              <li><strong>Мозг и сердце.</strong> Без них тварь не работает.</li>
+              <li><strong>Движение.</strong> Добавь ноги, лапы или крылья.</li>
+              <li><strong>Оружие и чувства.</strong> Глаза ищут врага, оружие наносит урон.</li>
+              <li><strong>Готово.</strong> Проверь тварь и отправь её в бой.</li>
             </ol>
             <p className="muted">
-              Не хочешь ничего менять? Закрой подсказку и нажми «Сразу в бой». Если начнёшь с нуля,
-              кнопка «Собрать базовое» добавит обязательные органы сама.
+              Если не хочешь ничего менять, нажми «Сразу в бой» вверху. Если начинаешь с нуля,
+              «Собрать базовое» добавит обязательные органы.
             </p>
             <button className="primary" onClick={() => setHelpOpen(false)}>
               Понятно
@@ -965,16 +1035,6 @@ function upgradeLabel(stat: UpgradeStat): string {
   }[stat];
 }
 
-function armorLabel(type: string): string {
-  return {
-    kinetic: "Кинетика",
-    piercing: "Пробитие",
-    thermal: "Термо",
-    acid: "Кислота",
-    electric: "Электро",
-    toxic: "Яд"
-  }[type] ?? type;
-}
 
 function unique(values: string[]): string[] {
   return Array.from(new Set(values));
@@ -990,14 +1050,6 @@ function ReadinessRow({ label, done, hint }: { label: string; done: boolean; hin
   );
 }
 
-function Stat({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="stat">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
 
 function cloneGenome(genome: Genome): Genome {
   return JSON.parse(JSON.stringify(genome)) as Genome;

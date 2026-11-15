@@ -12,6 +12,7 @@ import type {
   Snapshot
 } from "../../types";
 import Battlefield from "./Battlefield";
+import Minimap from "./Minimap";
 
 interface BattleScreenProps {
   catalog: Catalog;
@@ -29,6 +30,18 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem("iceja.sound") !== "off");
   const [audioState, setAudioState] = useState("suspended");
+  const [cleanMode, setCleanMode] = useState(false);
+  const [visualSettings, setVisualSettings] = useState(() => {
+    try {
+      const stored = localStorage.getItem("iceja.visualSettings");
+      if (stored !== null) {
+        return JSON.parse(stored) as { effects: boolean; smooth: boolean; minimap: boolean };
+      }
+    } catch {
+      return { effects: true, smooth: true, minimap: true };
+    }
+    return { effects: true, smooth: true, minimap: true };
+  });
   const resultRef = useRef<MatchResult | null>(null);
   const genomesRef = useRef<GenomeSummary[]>([]);
   const audioRef = useRef<BattleAudio | null>(null);
@@ -61,6 +74,10 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
       audioRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem("iceja.visualSettings", JSON.stringify(visualSettings));
+  }, [visualSettings]);
 
   useEffect(() => {
     localStorage.setItem("iceja.sound", soundEnabled ? "on" : "off");
@@ -167,7 +184,7 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
   const selectedGenome = selectedEntity === null ? undefined : genomes.find((genome) => genome.genomeId === selectedEntity.genomeId);
 
   return (
-    <div className="battle-layout">
+    <div className={cleanMode ? "battle-layout clean" : "battle-layout"}>
       <div className="battle-topbar">
         <div>
           <span className="eyebrow">Живой бой</span>
@@ -178,6 +195,44 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
           {formatTime(snapshot?.tick ?? 0, catalog.ruleset.tickRate)}
         </div>
         <div className="battle-actions">
+          <details className="battle-settings">
+            <summary className="secondary">Настройки</summary>
+            <div className="battle-settings-popover">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={visualSettings.effects}
+                  onChange={() =>
+                    setVisualSettings((current) => ({ ...current, effects: !current.effects }))
+                  }
+                />
+                Эффекты попаданий
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={visualSettings.smooth}
+                  onChange={() =>
+                    setVisualSettings((current) => ({ ...current, smooth: !current.smooth }))
+                  }
+                />
+                Плавное движение
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={visualSettings.minimap}
+                  onChange={() =>
+                    setVisualSettings((current) => ({ ...current, minimap: !current.minimap }))
+                  }
+                />
+                Мини-карта
+              </label>
+            </div>
+          </details>
+          <button className="secondary" onClick={() => setCleanMode((value) => !value)}>
+            {cleanMode ? "Показать интерфейс" : "Чистый режим"}
+          </button>
           <button
             className={soundEnabled && audioState !== "running" ? "primary" : "secondary"}
             data-audio-state={audioState}
@@ -254,12 +309,16 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
             map={map}
             snapshot={snapshot}
             genomes={genomes}
+            events={events}
+            effectsEnabled={visualSettings.effects}
+            smoothMotion={visualSettings.smooth}
             selectedId={selectedId}
             onSelect={(entityId) => {
               audioRef.current?.resume();
               setSelectedId(entityId);
             }}
           />
+          {visualSettings.minimap && <Minimap map={map} snapshot={snapshot} />}
           <div className="battle-camera-hint">Колесо — зум · перетаскивание — камера · клик — инспектор</div>
           {snapshot === null && (
             <div className="battle-loading">
@@ -484,7 +543,8 @@ function reasonLabel(reason: string): string {
     MOVE_TO_POINT: "Идёт в точку",
     RETURN_TO_HIVE: "Возвращается к улью",
     HIVE_TARGET: "Идёт к улью",
-    ABILITY_UNAVAILABLE: "Способность недоступна"
+    ABILITY_UNAVAILABLE: "Способность недоступна",
+    LAST_STAND: "Сопротивляется"
   }[reason] ?? reason;
 }
 
@@ -505,6 +565,8 @@ function eventText(event: SimEvent, snapshot: Snapshot | null, genomes: GenomeSu
       return `${targetName} уничтожен`;
     case "HEAL":
       return `${targetName} восстановил ${event.value}`;
+    case "RESOURCE":
+      return event.text === "CORPSE" ? `Труп съеден (+${event.value} энергии)` : "Сбор ресурса";
     case "OBJECTIVE":
       return `Улей #${event.targetId} получает ${event.value} урона`;
     case "MATCH_END":

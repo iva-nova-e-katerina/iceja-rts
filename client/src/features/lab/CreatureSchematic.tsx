@@ -1,9 +1,11 @@
-import type { ChassisDefinition, Genome, PartCategory, PartDefinition } from "../../types";
+import { useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
+import type { ChassisDefinition, Genome, PartCategory, PartDefinition, SocketType } from "../../types";
 
 interface CreatureSchematicProps {
   genome: Genome;
   chassis: ChassisDefinition | undefined;
   partsById: Map<string, PartDefinition>;
+  highlightSockets: SocketType[];
   onRemove: (index: number) => void;
 }
 
@@ -31,8 +33,13 @@ export default function CreatureSchematic({
   genome,
   chassis,
   partsById,
+  highlightSockets,
   onRemove
 }: CreatureSchematicProps) {
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const dragRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
   const placementsBySocket = new Map<string, Array<{ index: number; part: PartDefinition; mirrored: boolean }>>();
   const internalPlacements: Array<{ index: number; part: PartDefinition }> = [];
   genome.parts.forEach((placement, index) => {
@@ -49,8 +56,88 @@ export default function CreatureSchematic({
     placementsBySocket.set(placement.socketId, list);
   });
 
+  function applyZoom(nextZoom: number) {
+    const clamped = Math.max(1, Math.min(3.5, nextZoom));
+    const viewSize = 440 / clamped;
+    const maxPan = Math.max(0, (440 - viewSize) / 2);
+    setZoom(clamped);
+    setPan((current) => ({
+      x: Math.max(-maxPan, Math.min(maxPan, current.x)),
+      y: Math.max(-maxPan, Math.min(maxPan, current.y))
+    }));
+  }
+
+  function onWheel(event: ReactWheelEvent<SVGSVGElement>) {
+    event.preventDefault();
+    applyZoom(zoom * (event.deltaY < 0 ? 1.15 : 0.87));
+  }
+
+  function onPointerDown(event: ReactPointerEvent<SVGSVGElement>) {
+    if ((event.target as Element).closest(".schematic-part") !== null) {
+      return;
+    }
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      panX: pan.x,
+      panY: pan.y
+    };
+    setDragging(true);
+  }
+
+  function onPointerMove(event: ReactPointerEvent<SVGSVGElement>) {
+    const drag = dragRef.current;
+    if (drag === null) {
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0) {
+      return;
+    }
+    const unitsPerPixel = 440 / zoom / rect.width;
+    const maxPan = Math.max(0, (440 - 440 / zoom) / 2);
+    setPan({
+      x: Math.max(-maxPan, Math.min(maxPan, drag.panX - (event.clientX - drag.x) * unitsPerPixel)),
+      y: Math.max(-maxPan, Math.min(maxPan, drag.panY - (event.clientY - drag.y) * unitsPerPixel))
+    });
+  }
+
+  function onPointerUp() {
+    dragRef.current = null;
+    setDragging(false);
+  }
+
+  const viewSize = 440 / zoom;
+  const viewBox = `${-viewSize / 2 + pan.x} ${-viewSize / 2 + pan.y} ${viewSize} ${viewSize}`;
+
   return (
-    <svg className="creature-schematic" viewBox="-220 -220 440 440" role="img" aria-label={genome.name}>
+    <div className="schematic-zoom-wrap">
+      <div className="schematic-zoom-toolbar">
+        <button onClick={() => applyZoom(zoom * 1.2)} title="Увеличить изображение">+</button>
+        <button onClick={() => applyZoom(zoom * 0.8)} title="Уменьшить изображение">−</button>
+        <button
+          className="zoom-reset"
+          onClick={() => {
+            setZoom(1);
+            setPan({ x: 0, y: 0 });
+          }}
+          title="Сбросить масштаб"
+        >
+          {Math.round(zoom * 100)}%
+        </button>
+      </div>
+    <svg
+      className={dragging ? "creature-schematic dragging" : "creature-schematic"}
+      viewBox={viewBox}
+      role="img"
+      aria-label={genome.name}
+      onWheel={onWheel}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+    >
       <defs>
         <pattern id="lab-grid" width="20" height="20" patternUnits="userSpaceOnUse">
           <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#16262b" strokeWidth="1" />
@@ -91,8 +178,21 @@ export default function CreatureSchematic({
         if (position === undefined) {
           return null;
         }
+        const highlighted = highlightSockets.includes(socket.type);
         return (
-          <g key={socket.type}>
+          <g key={socket.type} className={highlighted ? "socket-highlight" : undefined}>
+            {highlighted && (
+              <circle
+                cx={position.x}
+                cy={position.y}
+                r="18"
+                fill="none"
+                stroke="#39e6b0"
+                strokeWidth="1.5"
+                strokeDasharray="4 3"
+                className="socket-pulse"
+              />
+            )}
             <circle cx={position.x} cy={position.y} r="13" fill="#0b1417" stroke="#2d5962" strokeWidth="1" />
             <text
               x={position.x}
@@ -140,6 +240,7 @@ export default function CreatureSchematic({
         })
       )}
     </svg>
+    </div>
   );
 }
 

@@ -203,9 +203,13 @@ export class BattleAudio {
     const objective = events.find((event) => event.type === "OBJECTIVE");
     const heal = events.find((event) => event.type === "HEAL");
     const spawn = events.find((event) => event.type === "SPAWN");
+    const resource = events.find((event) => event.type === "RESOURCE");
 
     if (spawn !== undefined && this.canPlay("spawn", 220)) {
       this.playSpawn(panFor(spawn));
+    }
+    if (resource !== undefined && this.canPlay("resource", 180)) {
+      this.playEat(panFor(resource));
     }
     if (death !== undefined && this.canPlay("death", 120)) {
       if (death.text === "HIVE_DESTROYED") {
@@ -339,6 +343,12 @@ export class BattleAudio {
     this.tone("sawtooth", 210, 65, 0.4, 0.2, 0, pan);
     this.tone("sine", 105, 40, 0.48, 0.24, 0.02, pan);
     this.noise(0.3, 0.15, "lowpass", 700, pan);
+  }
+
+  private playEat(pan: number) {
+    this.noise(0.18, 0.12, "bandpass", 750, pan);
+    this.tone("sine", 190, 80, 0.24, 0.1, 0, pan);
+    this.tone("sine", 140, 65, 0.2, 0.08, 0.1, pan);
   }
 
   private playHeal(pan: number) {

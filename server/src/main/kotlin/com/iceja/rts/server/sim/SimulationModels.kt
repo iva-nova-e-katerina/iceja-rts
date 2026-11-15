@@ -98,11 +98,24 @@ class Creature(
     var aiReason: String = "NO_TARGET"
     var aiNodeId: String = ""
     val behaviorCooldowns: MutableMap<String, Int> = mutableMapOf()
+    var scavengeTargetId: Int = 0
+    var scavengeTicks: Int = 0
     var damageDealt: Long = 0
     var kills: Int = 0
     val statuses: MutableList<StatusEffect> = mutableListOf()
     var angle: Int = 0
 }
+
+class Corpse(
+    val id: Int,
+    val ownerId: Int,
+    val genomeIndex: Int,
+    val x: Int,
+    val y: Int,
+    var remainingTicks: Int = 900,
+    val nutritionEnergy: Int = 60,
+    val nutritionHp: Int = 20
+)
 
 class Projectile(
     val id: Int,
@@ -123,6 +136,7 @@ class Projectile(
     val radiusMm: Int = 100
 ) {
     var alive: Boolean = true
+    var angle: Int = 0
 }
 
 @Serializable
@@ -170,6 +184,16 @@ data class ProjectileSnapshot(
 )
 
 @Serializable
+data class CorpseSnapshot(
+    val id: Int,
+    val owner: Int,
+    val x: Int,
+    val y: Int,
+    val genomeId: Int,
+    val remainingTicks: Int
+)
+
+@Serializable
 data class HiveSnapshot(
     val id: Int,
     val owner: Int,
@@ -187,6 +211,7 @@ data class Snapshot(
     val matchId: String,
     val entities: List<EntitySnapshot>,
     val projectiles: List<ProjectileSnapshot>,
+    val corpses: List<CorpseSnapshot>,
     val hives: List<HiveSnapshot>,
     val scores: List<Int>,
     val flags: Int,

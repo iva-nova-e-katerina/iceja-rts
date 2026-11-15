@@ -1,12 +1,15 @@
 package com.iceja.rts.server.sim
 
 import com.iceja.rts.server.catalog.GameCatalog
+import com.iceja.rts.server.catalog.PartFlag
 import com.iceja.rts.server.genome.BehaviorGraph
 import com.iceja.rts.server.genome.BehaviorNode
 
 data class BehaviorBlackboard(
     val nearestEnemy: Creature?,
     val nearestAlly: Creature?,
+    val nearestCorpse: Corpse?,
+    val nearestCorpseDistanceMm: Int,
     val ownHive: Hive,
     val enemyHive: Hive,
     val hpPercent: Int,
@@ -32,6 +35,7 @@ object BehaviorGraphInterpreter {
         creature: Creature,
         friends: List<Creature>,
         enemies: List<Creature>,
+        corpses: List<Corpse> = emptyList(),
         ownHive: Hive,
         enemyHive: Hive,
         tick: Int,
@@ -41,6 +45,7 @@ object BehaviorGraphInterpreter {
             creature = creature,
             friends = friends,
             enemies = enemies,
+            corpses = corpses,
             ownHive = ownHive,
             enemyHive = enemyHive,
             tick = tick
@@ -63,6 +68,7 @@ object BehaviorGraphInterpreter {
         creature: Creature,
         friends: List<Creature>,
         enemies: List<Creature>,
+        corpses: List<Corpse> = emptyList(),
         ownHive: Hive,
         enemyHive: Hive,
         tick: Int
@@ -89,9 +95,28 @@ object BehaviorGraphInterpreter {
         val targetDistance = nearestEnemy?.let {
             IntegerMath.distance(creature.x, creature.y, it.x, it.y)
         } ?: Int.MAX_VALUE
+        val corpseSearchRadius = kotlin.math.max(20_000, visionRange)
+        val nearestCorpse = corpses
+            .asSequence()
+            .map { corpse ->
+                corpse to IntegerMath.distanceSq(creature.x, creature.y, corpse.x, corpse.y)
+            }
+            .filter { (_, distanceSq) ->
+                distanceSq <= corpseSearchRadius.toLong() * corpseSearchRadius
+            }
+            .minWithOrNull(
+                compareBy<Pair<Corpse, Long>> { it.second }
+                    .thenBy { it.first.id }
+            )
+            ?.first
+        val nearestCorpseDistance = nearestCorpse?.let {
+            IntegerMath.distance(creature.x, creature.y, it.x, it.y)
+        } ?: Int.MAX_VALUE
         return BehaviorBlackboard(
             nearestEnemy = nearestEnemy,
             nearestAlly = nearestAlly,
+            nearestCorpse = nearestCorpse,
+            nearestCorpseDistanceMm = nearestCorpseDistance,
             ownHive = ownHive,
             enemyHive = enemyHive,
             hpPercent = creature.hp * 100 / creature.stats.maxHp.coerceAtLeast(1),
@@ -206,7 +231,10 @@ object BehaviorGraphInterpreter {
                         blackboard.tick >= param(node, "seconds", 0) * GameCatalog.ruleset.tickRate
                     )
                     "RandomChance" -> condition(random.nextPercent() < param(node, "pct", 0))
-                    "ResourceNearby", "CorpseNearby" -> condition(false)
+                    "ResourceNearby" -> condition(false)
+                    "CorpseNearby" -> condition(
+                        blackboard.nearestCorpseDistanceMm <= param(node, "radius", 20) * 1000
+                    )
                     "IsRole" -> condition(node.text == creature.genome.behavior.presetId)
                     "HasLineOfSight" -> condition(blackboard.nearestEnemy != null)
                     "AttackTarget" -> attackTarget(node)
@@ -228,7 +256,7 @@ object BehaviorGraphInterpreter {
                         )
                     )
                     "Harvest" -> NodeResult(true, searchDecision("HARVEST", "RESOURCE_SEARCH", node.id))
-                    "EatCorpse" -> NodeResult(true, searchDecision("SCAVENGE", "CORPSE_SEARCH", node.id))
+                    "EatCorpse" -> eatCorpseDecision(node)
                     "Wait" -> NodeResult(true, holdDecision(creature, "WAITING", node.id))
                     "UseAbility", "Burrow", "Unburrow", "Reproduce", "Taunt" ->
                         NodeResult(true, holdDecision(creature, "ABILITY_UNAVAILABLE", node.id))
@@ -440,6 +468,27 @@ object BehaviorGraphInterpreter {
                 moveTarget = Vec2((ownHive.x + enemyHive.x) / 2, (ownHive.y + enemyHive.y) / 2),
                 nodeId = nodeId
             )
+
+        private fun eatCorpseDecision(node: BehaviorNode): NodeResult {
+            if (!creature.stats.flags.contains(PartFlag.SCAVENGER)) {
+                return NodeResult(false)
+            }
+            val corpse = blackboard.nearestCorpse ?: return NodeResult(false)
+            return NodeResult(
+                true,
+                AiDecision(
+                    mode = "SCAVENGE",
+                    reason = "CORPSE_NEARBY",
+                    targetId = corpse.id,
+                    moveTarget = Vec2(corpse.x, corpse.y),
+                    attackTargetId = 0,
+                    attackHive = false,
+                    fleeFrom = null,
+                    nodeId = node.id,
+                    scavengeTargetId = corpse.id
+                )
+            )
+        }
 
         private fun attackDecision(target: Creature, nodeId: String): AiDecision {
             val weaponRange = creature.stats.weapons.maxOfOrNull { it.rangeMm } ?: 0

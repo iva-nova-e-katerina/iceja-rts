@@ -6,6 +6,7 @@ import type {
   EntitySnapshot,
   GenomeSummary,
   MapDefinition,
+  SimEvent,
   Snapshot
 } from "../../types";
 
@@ -13,6 +14,9 @@ interface BattlefieldProps {
   map: MapDefinition;
   snapshot: Snapshot | null;
   genomes: GenomeSummary[];
+  events?: SimEvent[];
+  effectsEnabled?: boolean;
+  smoothMotion?: boolean;
   selectedId: number | null;
   onSelect: (entityId: number | null) => void;
 }
@@ -27,18 +31,53 @@ interface DragState {
   startWorldY: number;
 }
 
-export default function Battlefield({ map, snapshot, genomes, selectedId, onSelect }: BattlefieldProps) {
+interface EntityVisual {
+  root: Container;
+  bodyRoot: Container;
+  simpleRoot: Container;
+  selectionRing: Graphics;
+  attackRing: Graphics;
+  hpFill: Graphics;
+  bodyRadius: number;
+  ownerColor: number;
+}
+
+export default function Battlefield({
+  map,
+  snapshot,
+  genomes,
+  events = [],
+  effectsEnabled = true,
+  smoothMotion = true,
+  selectedId,
+  onSelect
+}: BattlefieldProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<Application | null>(null);
   const worldRef = useRef<Container | null>(null);
   const hiveLayerRef = useRef<Container | null>(null);
+  const corpseLayerRef = useRef<Container | null>(null);
   const entityLayerRef = useRef<Container | null>(null);
   const projectileLayerRef = useRef<Container | null>(null);
+  const effectLayerRef = useRef<Container | null>(null);
+  const entityVisualsRef = useRef<Map<number, EntityVisual>>(new Map());
+  const corpseVisualsRef = useRef<Map<number, Container>>(new Map());
+  const matchIdRef = useRef<string | null>(null);
+  const batchedModeRef = useRef(false);
   const snapshotRef = useRef<Snapshot | null>(null);
+  const currentSnapshotRef = useRef<Snapshot | null>(null);
+  const previousEntitiesRef = useRef<Map<number, { x: number; y: number; angle: number }>>(new Map());
+  const snapshotAtRef = useRef(0);
+  const lastEventIdRef = useRef(0);
+  const effectTimersRef = useRef<number[]>([]);
+  const effectsEnabledRef = useRef(effectsEnabled);
+  const smoothMotionRef = useRef(smoothMotion);
   const onSelectRef = useRef(onSelect);
   const [ready, setReady] = useState(false);
 
   onSelectRef.current = onSelect;
+  effectsEnabledRef.current = effectsEnabled;
+  smoothMotionRef.current = smoothMotion;
   snapshotRef.current = snapshot;
 
   useEffect(() => {
@@ -60,7 +99,7 @@ export default function Battlefield({ map, snapshot, genomes, selectedId, onSele
 
     const boot = async () => {
       await app.init({
-        background: "#070b0d",
+        background: map.theme.background,
         antialias: true,
         resizeTo: host,
         resolution: Math.min(window.devicePixelRatio, 2),
@@ -74,25 +113,70 @@ export default function Battlefield({ map, snapshot, genomes, selectedId, onSele
 
       const world = new Container();
       const gridLayer = new Container();
+      const corpseLayer = new Container();
       const hiveLayer = new Container();
       const entityLayer = new Container();
       const projectileLayer = new Container();
-      world.addChild(gridLayer, hiveLayer, entityLayer, projectileLayer);
+      const effectLayer = new Container();
+      world.addChild(gridLayer, corpseLayer, hiveLayer, entityLayer, projectileLayer, effectLayer);
       app.stage.addChild(world);
       appRef.current = app;
       worldRef.current = world;
       hiveLayerRef.current = hiveLayer;
+      corpseLayerRef.current = corpseLayer;
       entityLayerRef.current = entityLayer;
       projectileLayerRef.current = projectileLayer;
+      effectLayerRef.current = effectLayer;
 
       drawGrid(gridLayer, map);
 
       const fitScale = Math.min(app.screen.width / map.widthMm, app.screen.height / map.heightMm) * 0.94;
-      world.scale.set(fitScale);
+      const initialScale = fitScale * 1.25;
+      world.scale.set(initialScale);
       world.position.set(
-        (app.screen.width - map.widthMm * fitScale) / 2,
-        (app.screen.height - map.heightMm * fitScale) / 2
+        (app.screen.width - map.widthMm * initialScale) / 2,
+        (app.screen.height - map.heightMm * initialScale) / 2
       );
+
+      const renderFrame = () => {
+        const current = currentSnapshotRef.current;
+        if (current !== null) {
+          if (current.entities.length > 48) {
+            return;
+          }
+          const elapsed = performance.now() - snapshotAtRef.current;
+          const alpha = Math.max(0, Math.min(1, elapsed / 100));
+          const detailed = current.entities.length <= 16
+            ? world.scale.x >= 0.006
+            : world.scale.x >= 0.0085;
+          current.entities.forEach((entity) => {
+            const visual = entityVisualsRef.current.get(entity.id);
+            if (visual === undefined) {
+              return;
+            }
+            const previous = smoothMotionRef.current
+              ? previousEntitiesRef.current.get(entity.id)
+              : undefined;
+            if (previous === undefined) {
+              visual.root.position.set(entity.x, entity.y);
+              visual.bodyRoot.rotation = (entity.angle / 65_536) * Math.PI * 2;
+            } else {
+              visual.root.position.set(
+                previous.x + (entity.x - previous.x) * alpha,
+                previous.y + (entity.y - previous.y) * alpha
+              );
+              const angle = lerpAngle(previous.angle, entity.angle, alpha);
+              visual.bodyRoot.rotation = (angle / 65_536) * Math.PI * 2;
+            }
+            visual.bodyRoot.visible = detailed;
+            visual.simpleRoot.visible = !detailed;
+          });
+        }
+        app.renderer.render(app.stage);
+      };
+      app.ticker.maxFPS = 30;
+      app.ticker.add(renderFrame);
+      app.ticker.start();
 
       const canvas = app.canvas as HTMLCanvasElement;
 
@@ -130,6 +214,7 @@ export default function Battlefield({ map, snapshot, genomes, selectedId, onSele
           drag.moved = true;
         }
         world.position.set(drag.startWorldX + deltaX, drag.startWorldY + deltaY);
+        app.renderer.render(app.stage);
       };
 
       const onPointerUp = (event: PointerEvent) => {
@@ -173,6 +258,7 @@ export default function Battlefield({ map, snapshot, genomes, selectedId, onSele
         const nextScale = Math.min(maximum, Math.max(minimum, world.scale.x * (event.deltaY < 0 ? 1.12 : 0.89)));
         world.scale.set(nextScale);
         world.position.set(screenX - before.x * nextScale, screenY - before.y * nextScale);
+        app.renderer.render(app.stage);
       };
 
       canvas.addEventListener("pointerdown", onPointerDown);
@@ -185,6 +271,7 @@ export default function Battlefield({ map, snapshot, genomes, selectedId, onSele
           (app.screen.width - map.widthMm * world.scale.x) / 2,
           (app.screen.height - map.heightMm * world.scale.y) / 2
         );
+        app.renderer.render(app.stage);
       });
       resizeObserver.observe(host);
 
@@ -196,6 +283,7 @@ export default function Battlefield({ map, snapshot, genomes, selectedId, onSele
         resizeObserver.disconnect();
       };
       (host as HTMLDivElement & { __cleanup?: () => void }).__cleanup = cleanup;
+      app.renderer.render(app.stage);
       setReady(true);
     };
 
@@ -205,12 +293,16 @@ export default function Battlefield({ map, snapshot, genomes, selectedId, onSele
       disposed = true;
       const cleanup = (host as HTMLDivElement & { __cleanup?: () => void }).__cleanup;
       cleanup?.();
+      effectTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+      effectTimersRef.current = [];
       appRef.current?.destroy(true, { children: true });
       appRef.current = null;
       worldRef.current = null;
       hiveLayerRef.current = null;
+      corpseLayerRef.current = null;
       entityLayerRef.current = null;
       projectileLayerRef.current = null;
+      effectLayerRef.current = null;
     };
   }, [map]);
 
@@ -220,14 +312,52 @@ export default function Battlefield({ map, snapshot, genomes, selectedId, onSele
     }
     const genomesById = new Map(genomes.map((genome) => [genome.genomeId, genome]));
     const hives = hiveLayerRef.current;
+    const corpses = corpseLayerRef.current;
     const entities = entityLayerRef.current;
     const projectiles = projectileLayerRef.current;
-    if (hives === null || entities === null || projectiles === null) {
+    if (hives === null || corpses === null || entities === null || projectiles === null) {
       return;
     }
     clearLayer(hives);
-    clearLayer(entities);
     clearLayer(projectiles);
+
+    if (snapshot.matchId !== matchIdRef.current) {
+      clearLayer(entities);
+      clearLayer(corpses);
+      entityVisualsRef.current.clear();
+      corpseVisualsRef.current.clear();
+      previousEntitiesRef.current.clear();
+      currentSnapshotRef.current = null;
+      matchIdRef.current = snapshot.matchId;
+    }
+
+    const previous = new Map<number, { x: number; y: number; angle: number }>();
+    currentSnapshotRef.current?.entities.forEach((entity) => {
+      previous.set(entity.id, { x: entity.x, y: entity.y, angle: entity.angle });
+    });
+    previousEntitiesRef.current = previous;
+    currentSnapshotRef.current = snapshot;
+    snapshotAtRef.current = performance.now();
+
+    const corpseVisuals = corpseVisualsRef.current;
+    const seenCorpseIds = new Set<number>();
+    (snapshot.corpses ?? []).forEach((corpse) => {
+      let visual = corpseVisuals.get(corpse.id);
+      if (visual === undefined) {
+        visual = createCorpseVisual(corpse.owner);
+        corpses.addChild(visual);
+        corpseVisuals.set(corpse.id, visual);
+      }
+      visual.position.set(corpse.x, corpse.y);
+      visual.alpha = Math.max(0.25, Math.min(1, corpse.remainingTicks / 900));
+      seenCorpseIds.add(corpse.id);
+    });
+    for (const [corpseId, visual] of corpseVisuals) {
+      if (!seenCorpseIds.has(corpseId)) {
+        visual.destroy({ children: true });
+        corpseVisuals.delete(corpseId);
+      }
+    }
 
     snapshot.hives.forEach((hive) => {
       const color = hive.owner === 0 ? 0x1f6f5c : 0x7a3d1e;
@@ -246,47 +376,152 @@ export default function Battlefield({ map, snapshot, genomes, selectedId, onSele
       hives.addChild(bar);
     });
 
+    const batchMode =
+      snapshot.entities.length > 48 && (worldRef.current?.scale.x ?? 0) < 0.0085;
+    if (batchMode !== batchedModeRef.current) {
+      clearLayer(entities);
+      entityVisualsRef.current.clear();
+      batchedModeRef.current = batchMode;
+    }
+
+    if (batchMode) {
+      drawBatchedCreatures(entities, snapshot, genomesById, selectedId);
+    } else {
+    const entityVisuals = entityVisualsRef.current;
+    const seenEntityIds = new Set<number>();
     snapshot.entities.forEach((entity) => {
       const genome = genomesById.get(entity.genomeId);
       const render = genome?.render;
       if (render === undefined) {
-        drawFallbackCreature(entities, entity, genome, selectedId);
         return;
       }
-      const creature = new Graphics();
-      drawCreature(creature, entity, render, selectedId);
-      entities.addChild(creature);
-
-      const bodyRadius = render.bodyRadiusMm;
+      let visual = entityVisuals.get(entity.id);
+      if (visual === undefined) {
+        visual = createEntityVisual(entity, render);
+        entities.addChild(visual.root);
+        entityVisuals.set(entity.id, visual);
+      }
+      if (snapshot.entities.length > 48) {
+        visual.root.position.set(entity.x, entity.y);
+        visual.bodyRoot.rotation = (entity.angle / 65_536) * Math.PI * 2;
+        const detailed = snapshot.entities.length <= 16
+          ? (worldRef.current?.scale.x ?? 0) >= 0.006
+          : (worldRef.current?.scale.x ?? 0) >= 0.0085;
+        visual.bodyRoot.visible = detailed;
+        visual.simpleRoot.visible = !detailed;
+      }
+      visual.selectionRing.visible = entity.id === selectedId;
+      visual.attackRing.visible = entity.state === 2;
       const hpPercent = entity.maxHp === 0 ? 0 : entity.hp / entity.maxHp;
-      const barWidth = bodyRadius * 1.9;
-      const barTop = -bodyRadius * 1.5;
-      const hpBar = new Graphics();
-      hpBar
-        .rect(entity.x - barWidth / 2, entity.y + barTop, barWidth, bodyRadius * 0.3)
-        .fill(0x071012);
-      hpBar
+      const bodyRadius = visual.bodyRadius;
+      visual.hpFill
+        .clear()
         .rect(
-          entity.x - barWidth / 2 + bodyRadius * 0.05,
-          entity.y + barTop + bodyRadius * 0.05,
-          (barWidth - bodyRadius * 0.1) * hpPercent,
+          -bodyRadius * 0.9,
+          -bodyRadius * 1.45,
+          bodyRadius * 1.8 * hpPercent,
           bodyRadius * 0.2
         )
-        .fill(entity.owner === 0 ? 0x39e6b0 : 0xff9d5c);
-      entities.addChild(hpBar);
+        .fill(visual.ownerColor);
+      seenEntityIds.add(entity.id);
     });
+    for (const [entityId, visual] of entityVisuals) {
+      if (!seenEntityIds.has(entityId)) {
+        visual.root.destroy({ children: true });
+        entityVisuals.delete(entityId);
+      }
+    }
+    }
 
     snapshot.projectiles.forEach((projectile) => {
       const color = projectile.kind === 1 ? 0xfff1a8 : 0x6f8c93;
+      const angle = (projectile.angle / 65_536) * Math.PI * 2;
+      const dirX = Math.cos(angle);
+      const dirY = Math.sin(angle);
+      const trail = new Graphics()
+        .moveTo(projectile.x - dirX * 900, projectile.y - dirY * 900)
+        .lineTo(projectile.x, projectile.y)
+        .stroke({ width: 180, color, alpha: 0.45 });
       const bullet = new Graphics()
         .circle(projectile.x, projectile.y, 320)
         .fill(color)
         .stroke({ width: 100, color: 0x071012 });
-      projectiles.addChild(bullet);
+      projectiles.addChild(trail, bullet);
     });
+
+    appRef.current?.renderer.render(appRef.current.stage);
   }, [ready, snapshot, genomes, selectedId]);
 
+  useEffect(() => {
+    if (!ready || events.length === 0) {
+      return;
+    }
+    const layer = effectLayerRef.current;
+    if (layer === null) {
+      return;
+    }
+    const latestId = events[events.length - 1].id;
+    if (lastEventIdRef.current === 0) {
+      lastEventIdRef.current = latestId;
+      return;
+    }
+    events.forEach((event) => {
+      if (event.id <= lastEventIdRef.current) {
+        return;
+      }
+      if (
+        effectsEnabledRef.current &&
+        (event.type === "HIT" || event.type === "DEATH" || event.type === "OBJECTIVE")
+      ) {
+        spawnImpact(layer, event, effectTimersRef.current);
+      }
+    });
+    lastEventIdRef.current = Math.max(lastEventIdRef.current, latestId);
+    appRef.current?.renderer.render(appRef.current.stage);
+  }, [ready, events]);
+
   return <div ref={hostRef} className="battlefield" />;
+}
+
+function spawnImpact(layer: Container, event: SimEvent, timers: number[]) {
+  const color = impactColor(event);
+  const radius = event.type === "DEATH" ? 1_200 : event.type === "OBJECTIVE" ? 1_800 : 420;
+  const effect = new Graphics()
+    .circle(event.x, event.y, radius)
+    .fill({ color, alpha: 0.45 })
+    .stroke({ width: radius * 0.22, color, alpha: 0.9 });
+  layer.addChild(effect);
+  const timer = window.setTimeout(() => {
+    if (effect.parent !== null) {
+      effect.parent.removeChild(effect);
+    }
+    effect.destroy();
+  }, event.type === "DEATH" ? 320 : 180);
+  timers.push(timer);
+}
+
+function impactColor(event: SimEvent): number {
+  if (event.type === "DEATH") return 0xff5c6c;
+  if (event.type === "OBJECTIVE") return 0xffb347;
+  switch (event.text) {
+    case "PIERCING":
+      return 0xffffff;
+    case "ACID":
+      return 0x9cff6a;
+    case "TOXIC":
+      return 0xb6ff7a;
+    case "ELECTRIC":
+      return 0x7cf7ff;
+    case "THERMAL":
+      return 0xff9d5c;
+    default:
+      return 0xfff1a8;
+  }
+}
+
+function lerpAngle(from: number, to: number, alpha: number): number {
+  const delta = ((((to - from) + 32_768) % 65_536) + 65_536) % 65_536 - 32_768;
+  return (from + delta * alpha + 65_536) % 65_536;
 }
 
 const backShapes = new Set<CreatureRenderPart["shape"]>([
@@ -326,14 +561,79 @@ const shapeColors: Record<CreatureRenderPart["shape"], number> = {
   BURROW_CLAW: 0xd0a36a
 };
 
-function drawCreature(g: Graphics, entity: EntitySnapshot, render: CreatureRenderView, selectedId: number | null) {
+function createEntityVisual(entity: EntitySnapshot, render: CreatureRenderView): EntityVisual {
   const ownerColor = entity.owner === 0 ? 0x39e6b0 : 0xff8a4c;
   const bodyFill = entity.owner === 0 ? 0x123b33 : 0x3b2416;
   const bodyRadius = render.bodyRadiusMm;
-  const bodyRy = bodyRadius * 0.72;
+  const root = new Container();
+  const bodyRoot = new Container();
+  const body = new Graphics();
+  drawCreatureBody(body, render, ownerColor, bodyFill);
+  bodyRoot.addChild(body);
+  bodyRoot.visible = false;
 
-  g.position.set(entity.x, entity.y);
-  g.rotation = (entity.angle / 65_536) * Math.PI * 2;
+  const simpleRoot = new Container();
+  const simpleBody = new Graphics();
+  drawSimpleBody(simpleBody, bodyRadius, ownerColor, bodyFill);
+  simpleRoot.addChild(simpleBody);
+
+  const selectionRing = new Graphics()
+    .circle(0, 0, bodyRadius * 1.62)
+    .stroke({ width: bodyRadius * 0.07, color: 0xffffff, alpha: 0.95 });
+  selectionRing.visible = false;
+
+  const attackRing = new Graphics()
+    .circle(0, 0, bodyRadius * 1.42)
+    .stroke({ width: bodyRadius * 0.06, color: 0xff5c6c, alpha: 0.9 });
+  attackRing.visible = false;
+
+  const hpBar = new Graphics()
+    .rect(-bodyRadius * 0.95, -bodyRadius * 1.5, bodyRadius * 1.9, bodyRadius * 0.3)
+    .fill(0x071012);
+  const hpFill = new Graphics();
+
+  root.addChild(simpleRoot, bodyRoot, selectionRing, attackRing, hpBar, hpFill);
+  return {
+    root,
+    bodyRoot,
+    simpleRoot,
+    selectionRing,
+    attackRing,
+    hpFill,
+    bodyRadius,
+    ownerColor
+  };
+}
+
+function drawSimpleBody(
+  g: Graphics,
+  bodyRadius: number,
+  ownerColor: number,
+  bodyFill: number
+) {
+  const bodyRy = bodyRadius * 0.72;
+  g.ellipse(0, 0, bodyRadius * 0.9, bodyRy)
+    .fill(bodyFill)
+    .stroke({ width: bodyRadius * 0.08, color: ownerColor });
+  g.ellipse(bodyRadius * 0.5, 0, bodyRadius * 0.45, bodyRy * 0.62)
+    .fill(bodyFill)
+    .stroke({ width: bodyRadius * 0.055, color: ownerColor });
+  g.moveTo(-bodyRadius * 0.45, 0)
+    .quadraticCurveTo(-bodyRadius * 0.9, -bodyRy * 0.36, -bodyRadius * 1.35, 0)
+    .quadraticCurveTo(-bodyRadius * 0.9, bodyRy * 0.36, -bodyRadius * 0.45, 0)
+    .closePath()
+    .fill(bodyFill)
+    .stroke({ width: bodyRadius * 0.05, color: ownerColor });
+}
+
+function drawCreatureBody(
+  g: Graphics,
+  render: CreatureRenderView,
+  ownerColor: number,
+  bodyFill: number
+) {
+  const bodyRadius = render.bodyRadiusMm;
+  const bodyRy = bodyRadius * 0.72;
 
   render.parts
     .filter((part) => backShapes.has(part.shape))
@@ -349,21 +649,6 @@ function drawCreature(g: Graphics, entity: EntitySnapshot, render: CreatureRende
   render.parts
     .filter((part) => !backShapes.has(part.shape))
     .forEach((part) => drawPart(g, part, render, bodyRadius, bodyRy));
-
-  if (entity.state === 2) {
-    g.circle(0, 0, bodyRadius * 1.42).stroke({
-      width: bodyRadius * 0.06,
-      color: 0xff5c6c,
-      alpha: 0.9
-    });
-  }
-  if (entity.id === selectedId) {
-    g.circle(0, 0, bodyRadius * 1.62).stroke({
-      width: bodyRadius * 0.07,
-      color: 0xffffff,
-      alpha: 0.95
-    });
-  }
 }
 
 function drawBody(
@@ -710,23 +995,106 @@ function drawSpike(
     .fill(color);
 }
 
-function drawFallbackCreature(
+function createCorpseVisual(owner: number): Container {
+  const ownerTint = owner === 0 ? 0x1f6f5c : 0x7a3d1e;
+  const container = new Container();
+  const body = new Graphics();
+  body
+    .ellipse(0, 0, 1_100, 560)
+    .fill({ color: 0x2a2420, alpha: 0.55 })
+    .stroke({ width: 160, color: 0x6f5a45, alpha: 0.8 });
+  body
+    .moveTo(-850, -320)
+    .lineTo(850, 320)
+    .stroke({ width: 110, color: 0x6f5a45, alpha: 0.65 });
+  body
+    .moveTo(-850, 320)
+    .lineTo(850, -320)
+    .stroke({ width: 110, color: 0x6f5a45, alpha: 0.65 });
+  body
+    .circle(-330, -70, 95)
+    .fill({ color: ownerTint, alpha: 0.65 });
+  body
+    .circle(-330, -70, 95)
+    .stroke({ width: 60, color: 0x071012, alpha: 0.7 });
+  container.addChild(body);
+  return container;
+}
+
+function drawBatchedCreatures(
   layer: Container,
-  entity: EntitySnapshot,
-  genome: GenomeSummary | undefined,
+  snapshot: Snapshot,
+  genomesById: Map<number, GenomeSummary>,
   selectedId: number | null
 ) {
-  const radius = Math.max(1_200, genome?.radiusMm ?? 500);
-  const baseColor = entity.owner === 0 ? 0x39e6b0 : 0xff8a4c;
-  const stateColor = entity.state === 2 ? 0xff5c6c : entity.state === 1 ? 0x75e6d0 : baseColor;
-  const creature = new Graphics()
-    .circle(entity.x, entity.y, radius)
-    .fill(stateColor)
-    .stroke({ width: entity.owner === 0 ? 250 : 350, color: 0x071012 });
-  if (entity.id === selectedId) {
-    creature.circle(entity.x, entity.y, radius + 650).stroke({ width: 350, color: 0xffffff });
-  }
-  layer.addChild(creature);
+  clearLayer(layer);
+  const bodies = new Graphics();
+  const hpBars = new Graphics();
+  const rings = new Graphics();
+
+  snapshot.entities.forEach((entity) => {
+    const render = genomesById.get(entity.genomeId)?.render;
+    if (render === undefined) {
+      return;
+    }
+    const radius = render.bodyRadiusMm;
+    const angle = (entity.angle / 65_536) * Math.PI * 2;
+    const dirX = Math.cos(angle);
+    const dirY = Math.sin(angle);
+    const perpX = -dirY;
+    const perpY = dirX;
+    const ownerColor = entity.owner === 0 ? 0x39e6b0 : 0xff8a4c;
+    const bodyFill = entity.owner === 0 ? 0x123b33 : 0x3b2416;
+
+    bodies.circle(entity.x, entity.y, radius * 0.82).fill(bodyFill).stroke({
+      width: radius * 0.075,
+      color: ownerColor
+    });
+    const headX = entity.x + dirX * radius * 1.05;
+    const headY = entity.y + dirY * radius * 1.05;
+    bodies
+      .moveTo(headX, headY)
+      .lineTo(
+        entity.x + dirX * radius * 0.45 + perpX * radius * 0.45,
+        entity.y + dirY * radius * 0.45 + perpY * radius * 0.45
+      )
+      .lineTo(
+        entity.x + dirX * radius * 0.45 - perpX * radius * 0.45,
+        entity.y + dirY * radius * 0.45 - perpY * radius * 0.45
+      )
+      .closePath()
+      .fill(ownerColor);
+    const tailX = entity.x - dirX * radius * 1.35;
+    const tailY = entity.y - dirY * radius * 1.35;
+    bodies
+      .moveTo(tailX, tailY)
+      .lineTo(
+        entity.x - dirX * radius * 0.5 + perpX * radius * 0.3,
+        entity.y - dirY * radius * 0.5 + perpY * radius * 0.3
+      )
+      .lineTo(
+        entity.x - dirX * radius * 0.5 - perpX * radius * 0.3,
+        entity.y - dirY * radius * 0.5 - perpY * radius * 0.3
+      )
+      .closePath()
+      .fill(bodyFill);
+
+    const hpPercent = entity.maxHp === 0 ? 0 : entity.hp / entity.maxHp;
+    const barWidth = radius * 1.8;
+    const barX = entity.x - barWidth / 2;
+    const barY = entity.y - radius * 1.45;
+    hpBars.rect(barX, barY, barWidth, radius * 0.25).fill(0x071012);
+    hpBars.rect(barX + radius * 0.04, barY + radius * 0.04, (barWidth - radius * 0.08) * hpPercent, radius * 0.17).fill(ownerColor);
+
+    if (entity.id === selectedId) {
+      rings.circle(entity.x, entity.y, radius * 1.62).stroke({ width: radius * 0.07, color: 0xffffff });
+    }
+    if (entity.state === 2) {
+      rings.circle(entity.x, entity.y, radius * 1.42).stroke({ width: radius * 0.06, color: 0xff5c6c, alpha: 0.9 });
+    }
+  });
+
+  layer.addChild(bodies, hpBars, rings);
 }
 
 function drawGrid(layer: Container, map: MapDefinition) {
@@ -737,20 +1105,20 @@ function drawGrid(layer: Container, map: MapDefinition) {
   for (let y = 0; y <= map.heightMm; y += 8_000) {
     grid.moveTo(0, y).lineTo(map.widthMm, y);
   }
-  grid.stroke({ width: 250, color: 0x12242a, alpha: 0.9 });
+  grid.stroke({ width: 250, color: map.theme.grid, alpha: 0.9 });
   layer.addChild(grid);
 
   map.obstacles.forEach((obstacle) => {
     const rock = new Graphics()
       .rect(obstacle.x, obstacle.y, obstacle.width, obstacle.height)
-      .fill(0x1b2a30)
-      .stroke({ width: 500, color: 0x2f4a50 });
+      .fill(map.theme.obstacle)
+      .stroke({ width: 500, color: map.theme.obstacleStroke });
     layer.addChild(rock);
   });
 
   const border = new Graphics()
     .rect(0, 0, map.widthMm, map.heightMm)
-    .stroke({ width: 700, color: 0x2d5962 });
+    .stroke({ width: 700, color: map.theme.border });
   layer.addChild(border);
 }
 

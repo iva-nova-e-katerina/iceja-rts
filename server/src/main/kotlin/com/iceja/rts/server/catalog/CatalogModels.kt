@@ -228,6 +228,15 @@ data class SpawnPoint(
 )
 
 @Serializable
+data class MapTheme(
+    val background: Int,
+    val grid: Int,
+    val obstacle: Int,
+    val obstacleStroke: Int,
+    val border: Int
+)
+
+@Serializable
 data class MapDefinition(
     val id: String,
     val name: String,
@@ -236,7 +245,14 @@ data class MapDefinition(
     val spawnA: SpawnPoint = SpawnPoint(20_000, 64_000),
     val spawnB: SpawnPoint = SpawnPoint(108_000, 64_000),
     val deployRadiusMm: Int = 20_000,
-    val obstacles: List<Obstacle> = emptyList()
+    val obstacles: List<Obstacle> = emptyList(),
+    val theme: MapTheme = MapTheme(
+        background = 0x070B0D,
+        grid = 0x12242A,
+        obstacle = 0x1B2A30,
+        obstacleStroke = 0x2F4A50,
+        border = 0x2D5962
+    )
 )
 
 @Serializable

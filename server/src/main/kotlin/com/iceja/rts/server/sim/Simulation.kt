@@ -41,12 +41,14 @@ class Simulation(
     )
     private val creatures = mutableListOf<Creature>()
     private val projectiles = mutableListOf<Projectile>()
+    private val corpses = mutableListOf<Corpse>()
     private val eventBuffer = mutableListOf<SimEvent>()
     private val damageByPlayer = LongArray(2)
     private val killsByPlayer = IntArray(2)
     private val lossesByPlayer = IntArray(2)
     private val genomes: List<Genome>
     private var nextProjectileId = 100_000
+    private var nextCorpseId = 50_000
     private var nextEventId = 1L
 
     var tick: Int = 0
@@ -68,6 +70,8 @@ class Simulation(
 
     fun projectiles(): List<Projectile> = projectiles
 
+    fun corpses(): List<Corpse> = corpses
+
     fun events(): List<SimEvent> = eventBuffer
 
     fun step() {
@@ -88,6 +92,8 @@ class Simulation(
         applyStatusEffects()
         updateEnergy()
         updateRegeneration()
+        updateScavenging()
+        updateCorpses()
         removeDead()
         checkVictory()
     }
@@ -120,9 +126,19 @@ class Simulation(
                 owner = projectile.ownerId,
                 x = projectile.x,
                 y = projectile.y,
-                angle = 0,
+                angle = projectile.angle,
                 kind = if (projectile.hit) 1 else 0,
                 ttl = projectile.ttlTicks.coerceAtLeast(0)
+            )
+        }
+        val corpseSnapshots = corpses.map { corpse ->
+            CorpseSnapshot(
+                id = corpse.id,
+                owner = corpse.ownerId,
+                x = corpse.x,
+                y = corpse.y,
+                genomeId = corpse.genomeIndex,
+                remainingTicks = corpse.remainingTicks.coerceAtLeast(0)
             )
         }
         val hiveSnapshots = hives.map { hive ->
@@ -142,6 +158,7 @@ class Simulation(
             matchId = matchId,
             entities = entities,
             projectiles = projectileSnapshots,
+            corpses = corpseSnapshots,
             hives = hiveSnapshots,
             scores = listOf(
                 damageByPlayer[0].coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
@@ -179,6 +196,12 @@ class Simulation(
             mix(projectile.x.toLong())
             mix(projectile.y.toLong())
             mix(projectile.ttlTicks.toLong())
+        }
+        corpses.forEach { corpse ->
+            mix(corpse.id.toLong())
+            mix(corpse.x.toLong())
+            mix(corpse.y.toLong())
+            mix(corpse.remainingTicks.toLong())
         }
         return hash
     }
@@ -248,6 +271,7 @@ class Simulation(
                     creature = creature,
                     friends = friends,
                     enemies = enemies,
+                    corpses = corpses,
                     ownHive = ownHive,
                     enemyHive = enemyHive,
                     tick = tick
@@ -258,23 +282,26 @@ class Simulation(
                     creature = creature,
                     friends = friends,
                     enemies = enemies,
+                    corpses = corpses,
                     ownHive = ownHive,
                     enemyHive = enemyHive,
                     tick = tick,
                     random = aiRandom
                 )
             }
-            creature.aiMode = decision.mode
-            creature.aiReason = decision.reason
-            creature.aiNodeId = decision.nodeId
-            creature.targetId = decision.targetId
-            creature.attackTargetId = decision.attackTargetId
-            creature.attackHive = decision.attackHive
-            decision.moveTarget?.let { target ->
+            val effectiveDecision = lastStandDecision(creature, enemies) ?: decision
+            creature.aiMode = effectiveDecision.mode
+            creature.aiReason = effectiveDecision.reason
+            creature.aiNodeId = effectiveDecision.nodeId
+            creature.targetId = effectiveDecision.targetId
+            creature.attackTargetId = effectiveDecision.attackTargetId
+            creature.attackHive = effectiveDecision.attackHive
+            creature.scavengeTargetId = effectiveDecision.scavengeTargetId
+            effectiveDecision.moveTarget?.let { target ->
                 creature.desiredX = target.x
                 creature.desiredY = target.y
             }
-            decision.fleeFrom?.let { source ->
+            effectiveDecision.fleeFrom?.let { source ->
                 creature.fleeFromX = source.x
                 creature.fleeFromY = source.y
             }
@@ -292,13 +319,21 @@ class Simulation(
                 return@forEach
             }
 
+            val scavengeTarget = corpseById(creature.scavengeTargetId)
             val targetPoint = attackTargetPoint(creature)
             val goal = when {
+                scavengeTarget != null -> Vec2(scavengeTarget.x, scavengeTarget.y)
                 targetPoint != null -> targetPoint
                 creature.desiredX != 0 || creature.desiredY != 0 -> Vec2(creature.desiredX, creature.desiredY)
                 else -> null
             } ?: run {
                 creature.state = EntityState.IDLE
+                return@forEach
+            }
+
+            if (scavengeTarget != null && isInScavengeRange(creature, scavengeTarget)) {
+                creature.angle = AngleMath.of(scavengeTarget.x - creature.x, scavengeTarget.y - creature.y)
+                creature.state = EntityState.HARVESTING
                 return@forEach
             }
 
@@ -331,6 +366,101 @@ class Simulation(
             }
         }
     }
+
+    private fun lastStandDecision(creature: Creature, enemies: List<Creature>): AiDecision? {
+        val severelyWounded = creature.hp * 100 / creature.stats.maxHp.coerceAtLeast(1) <= 35
+        val recentlyHit = tick - creature.lastDamageTick <= GameCatalog.ruleset.tickRate * 3
+        if (!severelyWounded && !recentlyHit) {
+            return null
+        }
+        val weaponRange = creature.stats.weapons.maxOfOrNull { it.rangeMm } ?: return null
+        val target = enemies
+            .asSequence()
+            .filter { it.alive }
+            .map { enemy ->
+                enemy to IntegerMath.distanceSq(creature.x, creature.y, enemy.x, enemy.y)
+            }
+            .filter { (enemy, distanceSq) ->
+                val range = weaponRange + enemy.stats.radiusMm + 200
+                distanceSq <= range.toLong() * range
+            }
+            .minWithOrNull(
+                compareBy<Pair<Creature, Long>> { it.second }
+                    .thenBy { it.first.id }
+            )
+            ?.first
+            ?: return null
+        if (creature.attackTargetId == target.id) {
+            return null
+        }
+        return AiDecision(
+            mode = "ATTACK",
+            reason = "LAST_STAND",
+            targetId = target.id,
+            moveTarget = Vec2(target.x, target.y),
+            attackTargetId = target.id,
+            attackHive = false,
+            fleeFrom = null,
+            nodeId = "instinct:last-stand"
+        )
+    }
+
+    private fun updateScavenging() {
+        creatures.filter { it.alive && it.scavengeTargetId != 0 }.forEach { creature ->
+            val corpse = corpseById(creature.scavengeTargetId)
+            if (corpse == null || !creature.stats.flags.contains(PartFlag.SCAVENGER)) {
+                creature.scavengeTargetId = 0
+                creature.scavengeTicks = 0
+                return@forEach
+            }
+            if (!isInScavengeRange(creature, corpse)) {
+                creature.scavengeTicks = 0
+                return@forEach
+            }
+            creature.state = EntityState.HARVESTING
+            creature.scavengeTicks += 1
+            if (creature.scavengeTicks >= GameCatalog.ruleset.tickRate * 2) {
+                val energyGain = kotlin.math.min(corpse.nutritionEnergy, creature.stats.maxEnergy - creature.energy)
+                val hpGain = kotlin.math.min(corpse.nutritionHp, creature.stats.maxHp - creature.hp)
+                creature.energy += energyGain.coerceAtLeast(0)
+                creature.hp += hpGain.coerceAtLeast(0)
+                emit(
+                    "RESOURCE",
+                    creature.id,
+                    corpse.id,
+                    corpse.x,
+                    corpse.y,
+                    energyGain.coerceAtLeast(0),
+                    "CORPSE"
+                )
+                corpses.remove(corpse)
+                creature.scavengeTargetId = 0
+                creature.scavengeTicks = 0
+                creature.state = EntityState.IDLE
+            }
+        }
+    }
+
+    private fun updateCorpses() {
+        corpses.forEach { corpse -> corpse.remainingTicks -= 1 }
+        val expired = corpses.filter { it.remainingTicks <= 0 }.map { it.id }.toSet()
+        if (expired.isEmpty()) {
+            return
+        }
+        corpses.removeAll { it.id in expired }
+        creatures.forEach { creature ->
+            if (creature.scavengeTargetId in expired) {
+                creature.scavengeTargetId = 0
+                creature.scavengeTicks = 0
+            }
+        }
+    }
+
+    private fun isInScavengeRange(creature: Creature, corpse: Corpse): Boolean =
+        IntegerMath.distance(creature.x, creature.y, corpse.x, corpse.y) <= creature.stats.radiusMm + 800
+
+    private fun corpseById(corpseId: Int): Corpse? =
+        corpses.firstOrNull { it.id == corpseId }
 
     private fun attackTargetPoint(creature: Creature): Vec2? {
         if (creature.attackTargetId == 0) {
@@ -522,7 +652,9 @@ class Simulation(
                 dotDamagePerSecond = weapon.dotDamagePerSecond,
                 dotDurationTicks = weapon.dotDurationTicks,
                 penetration = weapon.penetration
-            )
+            ).also { projectile ->
+                projectile.angle = AngleMath.of(targetX - source.x, targetY - source.y)
+            }
             nextProjectileId += 1
             if (!hit) {
                 emit("MISS", source.id, targetId, targetX, targetY, 0, weapon.partId)
@@ -635,6 +767,8 @@ class Simulation(
                     }
                 }
             } else {
+                val previousX = projectile.x
+                val previousY = projectile.y
                 val step = IntegerMath.stepToward(
                     projectile.x,
                     projectile.y,
@@ -644,6 +778,7 @@ class Simulation(
                 )
                 projectile.x = step.x
                 projectile.y = step.y
+                projectile.angle = AngleMath.of(step.x - previousX, step.y - previousY)
             }
         }
     }
@@ -866,6 +1001,14 @@ class Simulation(
         if (sourceOwner >= 0) {
             killsByPlayer[sourceOwner] += 1
         }
+        corpses += Corpse(
+            id = nextCorpseId,
+            ownerId = target.ownerId,
+            genomeIndex = target.genomeIndex,
+            x = target.x,
+            y = target.y
+        )
+        nextCorpseId += 1
         emit("DEATH", sourceId, target.id, target.x, target.y, 0, "KILLED")
     }
 

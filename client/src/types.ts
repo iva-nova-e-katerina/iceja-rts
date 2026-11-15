@@ -146,6 +146,14 @@ export interface SpawnPoint {
   y: number;
 }
 
+export interface MapTheme {
+  background: number;
+  grid: number;
+  obstacle: number;
+  obstacleStroke: number;
+  border: number;
+}
+
 export interface MapDefinition {
   id: string;
   name: string;
@@ -155,6 +163,7 @@ export interface MapDefinition {
   spawnB: SpawnPoint;
   deployRadiusMm: number;
   obstacles: Obstacle[];
+  theme: MapTheme;
 }
 
 export interface Ruleset {
@@ -432,12 +441,22 @@ export interface HiveSnapshot {
   flags: number;
 }
 
+export interface CorpseSnapshot {
+  id: number;
+  owner: number;
+  x: number;
+  y: number;
+  genomeId: number;
+  remainingTicks: number;
+}
+
 export interface Snapshot {
   tick: number;
   serverTimeMs: number;
   matchId: string;
   entities: EntitySnapshot[];
   projectiles: ProjectileSnapshot[];
+  corpses: CorpseSnapshot[];
   hives: HiveSnapshot[];
   scores: number[];
   flags: number;

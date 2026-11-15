@@ -1,6 +1,7 @@
 package com.iceja.rts.server.sim
 
 import com.iceja.rts.server.catalog.GameCatalog
+import com.iceja.rts.server.catalog.PartFlag
 
 data class AiDecision(
     val mode: String,
@@ -10,7 +11,8 @@ data class AiDecision(
     val attackTargetId: Int,
     val attackHive: Boolean,
     val fleeFrom: Vec2?,
-    val nodeId: String = ""
+    val nodeId: String = "",
+    val scavengeTargetId: Int = 0
 )
 
 object BehaviorEngine {
@@ -18,6 +20,7 @@ object BehaviorEngine {
         creature: Creature,
         friends: List<Creature>,
         enemies: List<Creature>,
+        corpses: List<Corpse> = emptyList(),
         ownHive: Hive,
         enemyHive: Hive,
         tick: Int
@@ -61,6 +64,22 @@ object BehaviorEngine {
                 attackHive = false,
                 fleeFrom = null
             )
+        }
+
+        if (preset.id == "SCAVENGER" && creature.stats.flags.contains(PartFlag.SCAVENGER)) {
+            val corpse = nearestCorpse(creature, corpses)
+            if (corpse != null) {
+                return AiDecision(
+                    mode = "SCAVENGE",
+                    reason = "CORPSE_NEARBY",
+                    targetId = corpse.id,
+                    moveTarget = Vec2(corpse.x, corpse.y),
+                    attackTargetId = 0,
+                    attackHive = false,
+                    fleeFrom = null,
+                    scavengeTargetId = corpse.id
+                )
+            }
         }
 
         if (preset.id == "SIEGE") {
@@ -191,6 +210,21 @@ object BehaviorEngine {
             .filter { (_, distanceSq) -> distanceSq <= visionRange.toLong() * visionRange.toLong() }
             .minWithOrNull(
                 compareBy<Pair<Creature, Long>> { it.second }
+                    .thenBy { it.first.id }
+            )
+            ?.first
+    }
+
+    private fun nearestCorpse(creature: Creature, corpses: List<Corpse>): Corpse? {
+        val searchRadius = kotlin.math.max(20_000, creature.stats.visionRangeMm)
+        return corpses
+            .asSequence()
+            .map { corpse ->
+                corpse to IntegerMath.distanceSq(creature.x, creature.y, corpse.x, corpse.y)
+            }
+            .filter { (_, distanceSq) -> distanceSq <= searchRadius.toLong() * searchRadius }
+            .minWithOrNull(
+                compareBy<Pair<Corpse, Long>> { it.second }
                     .thenBy { it.first.id }
             )
             ?.first
