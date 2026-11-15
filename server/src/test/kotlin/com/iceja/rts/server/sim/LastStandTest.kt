@@ -25,12 +25,12 @@ class LastStandTest {
                 PlayerSetup(
                     playerId = 0,
                     nickname = "Wounded",
-                    units = listOf(ArmyPlacement(scout, scoutStats, 60_000, 64_000))
+                    units = listOf(ArmyPlacement(scout, scoutStats, 60_000, 110_000))
                 ),
                 PlayerSetup(
                     playerId = 1,
                     nickname = "Finisher",
-                    units = listOf(ArmyPlacement(brawler, brawlerStats, 70_000, 64_000))
+                    units = listOf(ArmyPlacement(brawler, brawlerStats, 70_000, 110_000))
                 )
             )
         )

@@ -24,6 +24,7 @@ data class BehaviorBlackboard(
     val hiveUnderAttack: Boolean,
     val underAttack: Boolean,
     val enemyHiveDistanceMm: Int,
+    val enemyHiveVisible: Boolean,
     val tick: Int,
     val lastDamageTick: Int,
     val visionRangeMm: Int
@@ -39,7 +40,8 @@ object BehaviorGraphInterpreter {
         ownHive: Hive,
         enemyHive: Hive,
         tick: Int,
-        random: Xoshiro128
+        random: Xoshiro128,
+        enemyHiveVisible: Boolean = false
     ): AiDecision {
         val blackboard = buildBlackboard(
             creature = creature,
@@ -48,7 +50,8 @@ object BehaviorGraphInterpreter {
             corpses = corpses,
             ownHive = ownHive,
             enemyHive = enemyHive,
-            tick = tick
+            tick = tick,
+            enemyHiveVisible = enemyHiveVisible
         )
         val nodesById = graph.nodes.associateBy { it.id }
         val result = Executor(
@@ -71,7 +74,8 @@ object BehaviorGraphInterpreter {
         corpses: List<Corpse> = emptyList(),
         ownHive: Hive,
         enemyHive: Hive,
-        tick: Int
+        tick: Int,
+        enemyHiveVisible: Boolean
     ): BehaviorBlackboard {
         val visionRange = creature.stats.visionRangeMm
         val nearestEnemy = if (visionRange > 0) {
@@ -133,6 +137,7 @@ object BehaviorGraphInterpreter {
             hiveUnderAttack = ownHive.hp < ownHive.maxHp,
             underAttack = tick - creature.lastDamageTick <= GameCatalog.ruleset.tickRate * 3,
             enemyHiveDistanceMm = IntegerMath.distance(creature.x, creature.y, enemyHive.x, enemyHive.y),
+            enemyHiveVisible = enemyHiveVisible,
             tick = tick,
             lastDamageTick = creature.lastDamageTick,
             visionRangeMm = visionRange
@@ -224,7 +229,8 @@ object BehaviorGraphInterpreter {
                     "HiveUnderAttack" -> condition(blackboard.hiveUnderAttack)
                     "HiveHpBelow" -> condition(blackboard.ownHiveHpPercent <= param(node, "pct", 100))
                     "EnemyHiveInRange" -> condition(
-                        blackboard.enemyHiveDistanceMm <= param(node, "range", 0) * 1000
+                        blackboard.enemyHiveVisible &&
+                            blackboard.enemyHiveDistanceMm <= param(node, "range", 0) * 1000
                     )
                     "HasStatus" -> condition(creature.statuses.any { status -> status.type.name == node.text })
                     "TimerElapsed" -> condition(
@@ -449,8 +455,9 @@ object BehaviorGraphInterpreter {
         }
 
         private fun patrolDecision(node: BehaviorNode): AiDecision {
-            val x = node.params["x"] ?: ((ownHive.x + enemyHive.x) / 2)
-            val y = node.params["y"] ?: ((ownHive.y + enemyHive.y) / 2)
+            val routePoint = PatrolRoute.point(creature, ownHive, enemyHive, blackboard.tick)
+            val x = node.params["x"] ?: routePoint.x
+            val y = node.params["y"] ?: routePoint.y
             return moveDecision(
                 mode = "PATROL",
                 reason = "PATROL",

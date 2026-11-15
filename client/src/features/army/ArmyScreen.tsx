@@ -329,29 +329,59 @@ function ArmyMap({
 }) {
   return (
     <div className="army-map-wrap">
-      <svg className="army-map" viewBox="0 0 128000 128000" role="img" aria-label="Army deployment map">
-        <rect x="0" y="0" width="128000" height="128000" fill="#081013" />
-        {Array.from({ length: 17 }, (_, index) => (
+      <svg
+        className="army-map"
+        viewBox={`0 0 ${map.widthMm} ${map.heightMm}`}
+        role="img"
+        aria-label="Army deployment map"
+      >
+        <rect x="0" y="0" width={map.widthMm} height={map.heightMm} fill="#081013" />
+        {Array.from({ length: Math.ceil(map.widthMm / 8000) + 1 }, (_, index) => (
           <line
             key={`v-${index}`}
             x1={index * 8000}
             y1="0"
             x2={index * 8000}
-            y2="128000"
+            y2={map.heightMm}
             stroke="#12242a"
             strokeWidth="350"
           />
         ))}
-        {Array.from({ length: 17 }, (_, index) => (
+        {Array.from({ length: Math.ceil(map.heightMm / 8000) + 1 }, (_, index) => (
           <line
             key={`h-${index}`}
             x1="0"
             y1={index * 8000}
-            x2="128000"
+            x2={map.widthMm}
             y2={index * 8000}
             stroke="#12242a"
             strokeWidth="350"
           />
+        ))}
+        {map.hazards.map((hazard) => (
+          <ellipse
+            key={`hazard-${hazard.id}`}
+            cx={hazard.x}
+            cy={hazard.y}
+            rx={hazard.radiusMm}
+            ry={hazard.radiusMm * 0.68}
+            fill="rgba(111, 156, 63, 0.22)"
+            stroke="rgba(159, 218, 107, 0.45)"
+            strokeWidth="450"
+          />
+        ))}
+        {map.objectives.map((objective) => (
+          <g key={`objective-${objective.id}`}>
+            <circle
+              cx={objective.x}
+              cy={objective.y}
+              r={objective.radiusMm}
+              fill="rgba(124, 147, 153, 0.09)"
+              stroke="rgba(124, 147, 153, 0.55)"
+              strokeWidth="450"
+            />
+            <circle cx={objective.x} cy={objective.y} r={objective.radiusMm * 0.28} fill="rgba(124, 147, 153, 0.25)" />
+          </g>
         ))}
         {map.obstacles.map((obstacle, index) => (
           <rect
@@ -421,7 +451,7 @@ function defaultPosition(index: number, map: MapDefinition): { x: number; y: num
   const column = index % 6;
   const row = Math.floor(index / 6);
   return {
-    x: Math.min(127000, Math.max(1000, map.spawnA.x + 4000 + column * 2500)),
-    y: Math.min(127000, Math.max(1000, map.spawnA.y + (row - 2) * 3000))
+    x: Math.min(map.widthMm - 1000, Math.max(1000, map.spawnA.x + 4000 + column * 2500)),
+    y: Math.min(map.heightMm - 1000, Math.max(1000, map.spawnA.y + (row - 2) * 3000))
   };
 }

@@ -4,6 +4,11 @@ type AudioContextConstructor = new () => AudioContext;
 type NoiseFilter = "lowpass" | "highpass" | "bandpass";
 
 let sharedContext: AudioContext | null = null;
+let battleMapWidth = 128_000;
+
+export function setBattleMapWidth(width: number) {
+  battleMapWidth = width > 0 ? width : 128_000;
+}
 
 function getSharedAudioContext(): AudioContext | null {
   if (sharedContext === null) {
@@ -24,29 +29,38 @@ export function unlockBattleAudio() {
   getSharedAudioContext();
 }
 
-interface AmbientVoice {
-  oscillators: OscillatorNode[];
-  lfo: OscillatorNode;
-  gain: GainNode;
-}
-
 export class BattleAudio {
   private context: AudioContext | null = null;
   private master: GainNode | null = null;
   private compressor: DynamicsCompressorNode | null = null;
-  private ambient: AmbientVoice | null = null;
+  private reverb: ConvolverNode | null = null;
+  private reverbReturn: GainNode | null = null;
   private enabled = true;
+  private volume = 0.8;
   private lastPlayed = new Map<string, number>();
 
   setEnabled(enabled: boolean) {
     this.enabled = enabled;
     if (this.master !== null && this.context !== null) {
-      this.master.gain.setTargetAtTime(enabled ? 0.8 : 0, this.context.currentTime, 0.02);
+      this.master.gain.setTargetAtTime(
+        enabled ? 0.8 * this.volume : 0,
+        this.context.currentTime,
+        0.02
+      );
     }
     if (enabled) {
       this.resume();
-    } else {
-      this.stopAmbient();
+    }
+  }
+
+  setVolume(volume: number) {
+    this.volume = Math.max(0, Math.min(1, volume));
+    if (this.master !== null && this.context !== null) {
+      this.master.gain.setTargetAtTime(
+        this.enabled ? 0.8 * this.volume : 0,
+        this.context.currentTime,
+        0.03
+      );
     }
   }
 
@@ -59,61 +73,6 @@ export class BattleAudio {
 
   state(): string {
     return this.context?.state ?? "unavailable";
-  }
-
-  startAmbient() {
-    if (!this.enabled) {
-      return;
-    }
-    const context = this.ensureContext();
-    const master = this.master;
-    if (context === null || master === null || context.state !== "running" || this.ambient !== null) {
-      return;
-    }
-    const now = context.currentTime;
-    const gain = context.createGain();
-    const filter = context.createBiquadFilter();
-    const low = context.createOscillator();
-    const high = context.createOscillator();
-    const lfo = context.createOscillator();
-    const lfoGain = context.createGain();
-    filter.type = "lowpass";
-    filter.frequency.value = 320;
-    filter.Q.value = 0.6;
-    low.type = "sine";
-    low.frequency.value = 110;
-    high.type = "triangle";
-    high.frequency.value = 164.81;
-    high.detune.value = -5;
-    lfo.type = "sine";
-    lfo.frequency.value = 0.07;
-    lfoGain.gain.value = 0.008;
-    low.connect(filter);
-    high.connect(filter);
-    filter.connect(gain);
-    gain.connect(master);
-    lfo.connect(lfoGain);
-    lfoGain.connect(gain.gain);
-    gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.018, now + 2.5);
-    low.start(now);
-    high.start(now);
-    lfo.start(now);
-    this.ambient = { oscillators: [low, high], lfo, gain };
-  }
-
-  stopAmbient() {
-    const ambient = this.ambient;
-    const context = this.context;
-    this.ambient = null;
-    if (ambient === null || context === null) {
-      return;
-    }
-    const now = context.currentTime;
-    ambient.gain.gain.cancelScheduledValues(now);
-    ambient.gain.gain.setTargetAtTime(0.0001, now, 0.4);
-    ambient.oscillators.forEach((oscillator) => oscillator.stop(now + 1.2));
-    ambient.lfo.stop(now + 1.2);
   }
 
   playEvents(events: SimEvent[]) {
@@ -169,11 +128,14 @@ export class BattleAudio {
   }
 
   dispose() {
-    this.stopAmbient();
     this.master?.disconnect();
     this.compressor?.disconnect();
+    this.reverb?.disconnect();
+    this.reverbReturn?.disconnect();
     this.master = null;
     this.compressor = null;
+    this.reverb = null;
+    this.reverbReturn = null;
     this.context = null;
   }
 
@@ -196,20 +158,30 @@ export class BattleAudio {
     if (!this.enabled) {
       return;
     }
-    const hit = events.find((event) => event.type === "HIT");
-    const attack = events.find((event) => event.type === "ATTACK");
+    const hits = events
+      .filter((event) => event.type === "HIT")
+      .sort((first, second) => second.value - first.value);
+    const attacks = events
+      .filter((event) => event.type === "ATTACK")
+      .sort((first, second) => second.value - first.value);
     const miss = events.find((event) => event.type === "MISS");
     const death = events.find((event) => event.type === "DEATH");
     const objective = events.find((event) => event.type === "OBJECTIVE");
     const heal = events.find((event) => event.type === "HEAL");
     const spawn = events.find((event) => event.type === "SPAWN");
     const resource = events.find((event) => event.type === "RESOURCE");
+    const telepathy = events.find((event) => event.type === "TELEPATHY");
+    const hit = hits[0];
+    const attack = attacks[0];
 
     if (spawn !== undefined && this.canPlay("spawn", 220)) {
       this.playSpawn(panFor(spawn));
     }
     if (resource !== undefined && this.canPlay("resource", 180)) {
       this.playEat(panFor(resource));
+    }
+    if (telepathy !== undefined && this.canPlay("telepathy", 420)) {
+      this.playTelepathy(panFor(telepathy), telepathy.text === "HELP");
     }
     if (death !== undefined && this.canPlay("death", 120)) {
       if (death.text === "HIVE_DESTROYED") {
@@ -224,13 +196,21 @@ export class BattleAudio {
     if (heal !== undefined && this.canPlay("heal", 200)) {
       this.playHeal(panFor(heal));
     }
-    if (hit !== undefined && this.canPlay("hit", 70)) {
-      this.playImpact(hit.text, panFor(hit));
-    } else if (attack !== undefined && this.canPlay("attack", 80)) {
-      if (attack.text.startsWith("RANGED")) {
-        this.playRangedAttack(panFor(attack));
-      } else {
-        this.playMeleeAttack(panFor(attack));
+    if (attack !== undefined && this.canPlay("attack", 80)) {
+      const ranged = attack.text.startsWith("RANGED");
+      if (ranged || hit === undefined) {
+        const weaponId = attack.text.split(":")[1] ?? "";
+        if (ranged) {
+          this.playRangedAttack(weaponId, panFor(attack));
+        } else {
+          this.playMeleeAttack(weaponId, panFor(attack));
+        }
+      }
+    }
+    if (hit !== undefined && this.canPlay("hit", 60)) {
+      this.playImpact(hit.text, panFor(hit), 1);
+      if (hits[1] !== undefined && this.canPlay("hit-secondary", 95)) {
+        this.playImpact(hits[1].text, panFor(hits[1]), 0.45);
       }
     }
     if (miss !== undefined && this.canPlay("miss", 120)) {
@@ -268,93 +248,181 @@ export class BattleAudio {
 
   private playDeathTestNow() {
     this.playTestNow();
-    window.setTimeout(() => this.playDeath(0), 420);
+    window.setTimeout(() => this.playMeleeAttack("CLAWS", -0.2), 300);
+    window.setTimeout(() => this.playRangedAttack("ACIDSPIT", 0.2), 520);
+    window.setTimeout(() => this.playImpact("ACID", 0.1), 680);
+    window.setTimeout(() => this.playDeath(0), 860);
   }
 
   private playSpawn(pan: number) {
-    this.tone("sine", 220, 440, 0.18, 0.08, 0, pan);
-    this.noise(0.1, 0.04, "bandpass", 900, pan);
+    this.tone("sine", 180, 420, 0.22, 0.07, 0, pan, 0.08);
+    this.tone("triangle", 340, 680, 0.16, 0.035, 0.03, pan, 0.06);
+    this.noise(0.12, 0.035, "bandpass", 1100, pan, 0.06);
   }
 
-  private playMeleeAttack(pan: number) {
+  private playMeleeAttack(weaponId: string, pan: number) {
     const variation = 0.9 + Math.random() * 0.2;
-    this.tone("triangle", 460 * variation, 180 * variation, 0.09, 0.1, 0, pan);
-    this.noise(0.08, 0.07, "bandpass", 1800, pan);
+    let start = 460;
+    let end = 180;
+    let volume = 0.1;
+    let noiseFrequency = 1800;
+    let noiseVolume = 0.07;
+    let noiseType: NoiseFilter = "bandpass";
+    switch (weaponId) {
+      case "BONEHAMMER":
+        start = 210;
+        end = 65;
+        volume = 0.16;
+        noiseFrequency = 520;
+        noiseVolume = 0.1;
+        noiseType = "lowpass";
+        break;
+      case "CLAWS":
+        start = 760;
+        end = 240;
+        noiseFrequency = 2600;
+        noiseVolume = 0.075;
+        break;
+      case "ELECTRO":
+        start = 1350;
+        end = 260;
+        volume = 0.12;
+        noiseFrequency = 3400;
+        noiseType = "highpass";
+        break;
+      case "SPINE":
+        start = 980;
+        end = 320;
+        noiseFrequency = 3000;
+        break;
+      case "VENOMFANG":
+        start = 380;
+        end = 120;
+        noiseFrequency = 900;
+        noiseVolume = 0.09;
+        break;
+    }
+    this.tone("triangle", start * variation, end * variation, 0.1, volume, 0, pan, 0.05);
+    this.tone("sine", (start / 2) * variation, end * 0.7, 0.14, volume * 0.55, 0.012, pan, 0.04);
+    this.noise(0.09, noiseVolume, noiseType, noiseFrequency, pan, 0.05);
   }
 
-  private playRangedAttack(pan: number) {
+  private playRangedAttack(weaponId: string, pan: number) {
     const variation = 0.92 + Math.random() * 0.16;
-    this.tone("sawtooth", 1050 * variation, 320 * variation, 0.1, 0.1, 0, pan);
-    this.noise(0.07, 0.05, "highpass", 2400, pan);
+    switch (weaponId) {
+      case "ACIDSPIT":
+        this.tone("sine", 520 * variation, 150, 0.22, 0.085, 0, pan, 0.12);
+        this.noise(0.2, 0.08, "bandpass", 720, pan, 0.1);
+        this.noise(0.08, 0.035, "highpass", 2500, pan, 0.03);
+        break;
+      case "SPOREMORTAR":
+        this.tone("sine", 150, 48, 0.24, 0.15, 0, pan, 0.16);
+        this.noise(0.22, 0.1, "lowpass", 620, pan, 0.12);
+        break;
+      case "HARPOON":
+        this.tone("triangle", 1150 * variation, 240, 0.12, 0.09, 0, pan, 0.04);
+        this.noise(0.08, 0.055, "highpass", 2100, pan, 0.03);
+        break;
+      case "ELECTROARC":
+        this.tone("square", 1700 * variation, 310, 0.14, 0.09, 0, pan, 0.04);
+        this.noise(0.12, 0.07, "highpass", 3000, pan, 0.03);
+        break;
+      default:
+        this.tone("sawtooth", 1050 * variation, 320 * variation, 0.11, 0.085, 0, pan, 0.05);
+        this.noise(0.08, 0.04, "highpass", 2400, pan, 0.03);
+        break;
+    }
   }
 
   private playMiss(pan: number) {
-    this.noise(0.14, 0.06, "bandpass", 1400, pan);
-    this.tone("sine", 620, 220, 0.12, 0.04, 0, pan);
+    this.noise(0.16, 0.055, "bandpass", 1500, pan, 0.04);
+    this.tone("sine", 640, 190, 0.14, 0.035, 0, pan, 0.03);
   }
 
-  private playImpact(type: string, pan: number) {
+  private playImpact(type: string, pan: number, gainScale = 1) {
     switch (type) {
       case "PIERCING":
-        this.tone("square", 1500, 520, 0.06, 0.12, 0, pan);
-        this.noise(0.06, 0.09, "highpass", 2200, pan);
+        this.tone("square", 1650, 520, 0.06, 0.11 * gainScale, 0, pan, 0.03);
+        this.noise(0.07, 0.085 * gainScale, "highpass", 2300, pan, 0.02);
         break;
       case "ACID":
-        this.noise(0.22, 0.12, "bandpass", 900, pan);
-        this.tone("sine", 320, 120, 0.28, 0.1, 0, pan);
+        this.noise(0.24, 0.11 * gainScale, "bandpass", 780, pan, 0.12);
+        this.tone("sine", 300, 95, 0.3, 0.09 * gainScale, 0, pan, 0.1);
+        this.noise(0.1, 0.035 * gainScale, "highpass", 1800, pan, 0.05);
         break;
       case "TOXIC":
-        this.tone("sine", 230, 85, 0.3, 0.12, 0, pan);
-        this.noise(0.18, 0.09, "lowpass", 420, pan);
+        this.tone("sine", 230, 74, 0.34, 0.11 * gainScale, 0, pan, 0.1);
+        this.noise(0.19, 0.085 * gainScale, "lowpass", 390, pan, 0.08);
         break;
       case "ELECTRIC":
-        this.tone("square", 1900, 280, 0.12, 0.14, 0, pan);
-        this.noise(0.1, 0.08, "highpass", 2600, pan);
+        this.tone("square", 2100, 240, 0.13, 0.12 * gainScale, 0, pan, 0.04);
+        this.noise(0.11, 0.08 * gainScale, "highpass", 2900, pan, 0.03);
+        this.tone("sine", 95, 48, 0.15, 0.04 * gainScale, 0, pan, 0.03);
         break;
       case "THERMAL":
-        this.noise(0.2, 0.11, "bandpass", 1200, pan);
-        this.tone("sawtooth", 420, 150, 0.2, 0.08, 0, pan);
+        this.noise(0.22, 0.1 * gainScale, "bandpass", 1150, pan, 0.08);
+        this.tone("sawtooth", 440, 140, 0.22, 0.07 * gainScale, 0, pan, 0.06);
         break;
       case "STARVATION":
-        this.tone("sine", 110, 55, 0.16, 0.08, 0, pan);
+        this.tone("sine", 110, 52, 0.18, 0.07 * gainScale, 0, pan, 0.02);
         break;
       default:
-        this.tone("sine", 160, 65, 0.12, 0.18, 0, pan);
-        this.noise(0.1, 0.11, "lowpass", 700, pan);
+        this.tone("sine", 170, 58, 0.13, 0.16 * gainScale, 0, pan, 0.04);
+        this.tone("triangle", 320, 90, 0.08, 0.06 * gainScale, 0, pan, 0.03);
+        this.noise(0.11, 0.1 * gainScale, "lowpass", 720, pan, 0.03);
         break;
     }
   }
 
   private playDeath(pan: number) {
     const variation = 0.9 + Math.random() * 0.2;
-    this.tone("sawtooth", 720 * variation, 150 * variation, 0.38, 0.24, 0, pan);
-    this.tone("square", 400 * variation, 85 * variation, 0.42, 0.12, 0.03, pan);
-    this.tone("sine", 130 * variation, 45 * variation, 0.55, 0.18, 0.03, pan);
-    this.noise(0.35, 0.15, "lowpass", 1600, pan);
+    this.tone("sawtooth", 720 * variation, 150 * variation, 0.4, 0.23, 0, pan, 0.16);
+    this.tone("square", 400 * variation, 85 * variation, 0.44, 0.11, 0.03, pan, 0.12);
+    this.tone("sine", 130 * variation, 45 * variation, 0.6, 0.17, 0.03, pan, 0.12);
+    this.noise(0.4, 0.14, "lowpass", 1600, pan, 0.14);
+    this.noise(0.12, 0.04, "highpass", 2800, pan, 0.03);
   }
 
   private playHiveDeath(pan: number) {
-    this.tone("sine", 95, 30, 0.9, 0.3, 0, pan);
-    this.tone("sawtooth", 170, 40, 0.75, 0.18, 0.05, pan);
-    this.noise(0.8, 0.24, "lowpass", 750, pan);
+    this.tone("sine", 95, 30, 0.95, 0.3, 0, pan, 0.3);
+    this.tone("sawtooth", 170, 40, 0.8, 0.17, 0.05, pan, 0.22);
+    this.noise(0.85, 0.23, "lowpass", 750, pan, 0.26);
+    this.noise(0.3, 0.08, "bandpass", 1800, pan, 0.12);
   }
 
   private playHiveDamage(pan: number) {
-    this.tone("sawtooth", 210, 65, 0.4, 0.2, 0, pan);
-    this.tone("sine", 105, 40, 0.48, 0.24, 0.02, pan);
-    this.noise(0.3, 0.15, "lowpass", 700, pan);
+    this.tone("sawtooth", 210, 65, 0.42, 0.19, 0, pan, 0.16);
+    this.tone("sine", 105, 40, 0.5, 0.22, 0.02, pan, 0.18);
+    this.noise(0.32, 0.14, "lowpass", 700, pan, 0.14);
+    this.noise(0.1, 0.045, "highpass", 2200, pan, 0.04);
+  }
+
+  private playTelepathy(pan: number, help: boolean) {
+    if (help) {
+      this.tone("sine", 220, 440, 0.3, 0.13, 0, pan, 0.3);
+      this.tone("triangle", 330, 660, 0.42, 0.1, 0.08, pan, 0.26);
+      this.tone("sine", 880, 1320, 0.24, 0.065, 0.2, pan, 0.2);
+      this.noise(0.24, 0.045, "bandpass", 2200, pan, 0.2);
+      return;
+    }
+    this.tone("sine", 380, 560, 0.65, 0.08, 0, pan, 0.28);
+    this.tone("sine", 570, 840, 0.6, 0.06, 0.1, pan, 0.24);
+    this.tone("triangle", 760, 1140, 0.5, 0.035, 0.2, pan, 0.2);
+    this.noise(0.3, 0.035, "bandpass", 2600, pan, 0.15);
   }
 
   private playEat(pan: number) {
-    this.noise(0.18, 0.12, "bandpass", 750, pan);
-    this.tone("sine", 190, 80, 0.24, 0.1, 0, pan);
-    this.tone("sine", 140, 65, 0.2, 0.08, 0.1, pan);
+    this.noise(0.16, 0.11, "bandpass", 780, pan, 0.06);
+    this.noise(0.1, 0.06, "lowpass", 320, pan, 0.04);
+    this.tone("sine", 190, 75, 0.26, 0.09, 0, pan, 0.05);
+    this.tone("sine", 140, 60, 0.22, 0.07, 0.1, pan, 0.04);
   }
 
   private playHeal(pan: number) {
-    this.tone("sine", 660, 880, 0.18, 0.12, 0, pan);
-    this.tone("sine", 990, 990, 0.16, 0.08, 0.1, pan);
-    this.tone("sine", 1320, 1320, 0.1, 0.04, 0.18, pan);
+    this.tone("sine", 660, 880, 0.2, 0.11, 0, pan, 0.12);
+    this.tone("sine", 990, 990, 0.18, 0.07, 0.1, pan, 0.1);
+    this.tone("sine", 1320, 1320, 0.12, 0.035, 0.2, pan, 0.08);
+    this.noise(0.18, 0.018, "highpass", 3200, pan, 0.06);
   }
 
   private canPlay(key: string, intervalMs: number): boolean {
@@ -376,13 +444,19 @@ export class BattleAudio {
       return null;
     }
     this.master = this.context.createGain();
-    this.master.gain.value = this.enabled ? 0.8 : 0;
+    this.master.gain.value = this.enabled ? 0.8 * this.volume : 0;
     this.compressor = this.context.createDynamicsCompressor();
-    this.compressor.threshold.value = -20;
+    this.compressor.threshold.value = -18;
     this.compressor.knee.value = 20;
-    this.compressor.ratio.value = 6;
+    this.compressor.ratio.value = 7;
     this.compressor.attack.value = 0.003;
-    this.compressor.release.value = 0.25;
+    this.compressor.release.value = 0.28;
+    this.reverb = this.context.createConvolver();
+    this.reverb.buffer = createImpulseBuffer(this.context, 1.8, 2.8);
+    this.reverbReturn = this.context.createGain();
+    this.reverbReturn.gain.value = 0.2;
+    this.reverb.connect(this.reverbReturn);
+    this.reverbReturn.connect(this.compressor);
     this.master.connect(this.compressor);
     this.compressor.connect(this.context.destination);
     return this.context;
@@ -395,7 +469,8 @@ export class BattleAudio {
     duration: number,
     volume: number,
     delaySeconds = 0,
-    pan = 0
+    pan = 0,
+    reverbSend = 0
   ) {
     const context = this.ensureContext();
     const master = this.master;
@@ -412,18 +487,19 @@ export class BattleAudio {
     gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume), now + 0.012);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
     oscillator.connect(gain);
-    const panner = createPanner(context, pan);
-    if (panner === null) {
-      gain.connect(master);
-    } else {
-      gain.connect(panner);
-      panner.connect(master);
-    }
+    this.routeOutput(gain, pan, reverbSend);
     oscillator.start(now);
     oscillator.stop(now + duration + 0.04);
   }
 
-  private noise(duration: number, volume: number, filterType: NoiseFilter, frequency: number, pan = 0) {
+  private noise(
+    duration: number,
+    volume: number,
+    filterType: NoiseFilter,
+    frequency: number,
+    pan = 0,
+    reverbSend = 0
+  ) {
     const context = this.ensureContext();
     const master = this.master;
     if (context === null || master === null) {
@@ -443,19 +519,56 @@ export class BattleAudio {
     filter.frequency.value = frequency;
     filter.Q.value = filterType === "bandpass" ? 1.4 : 0.7;
     const now = context.currentTime;
-    gain.gain.setValueAtTime(Math.max(0.0002, volume), now);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume), now + 0.006);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
     source.connect(filter);
     filter.connect(gain);
-    const panner = createPanner(context, pan);
-    if (panner === null) {
-      gain.connect(master);
-    } else {
-      gain.connect(panner);
-      panner.connect(master);
-    }
+    this.routeOutput(gain, pan, reverbSend);
     source.start(now);
   }
+
+  private routeOutput(source: AudioNode, pan: number, reverbSend: number) {
+    const context = this.context;
+    const master = this.master;
+    if (context === null || master === null) {
+      return;
+    }
+    const panner = createPanner(context, pan);
+    if (panner === null) {
+      source.connect(master);
+    } else {
+      source.connect(panner);
+      panner.connect(master);
+    }
+    if (reverbSend > 0 && this.reverb !== null) {
+      const send = context.createGain();
+      send.gain.value = reverbSend;
+      if (panner === null) {
+        source.connect(send);
+      } else {
+        panner.connect(send);
+      }
+      send.connect(this.reverb);
+    }
+  }
+}
+
+function createImpulseBuffer(
+  context: AudioContext,
+  durationSeconds: number,
+  decay: number
+): AudioBuffer {
+  const frameCount = Math.max(1, Math.floor(context.sampleRate * durationSeconds));
+  const buffer = context.createBuffer(2, frameCount, context.sampleRate);
+  for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
+    const data = buffer.getChannelData(channel);
+    for (let index = 0; index < frameCount; index += 1) {
+      const envelope = Math.pow(1 - index / frameCount, decay);
+      data[index] = (Math.random() * 2 - 1) * envelope;
+    }
+  }
+  return buffer;
 }
 
 function createPanner(context: AudioContext, pan: number): StereoPannerNode | null {
@@ -471,5 +584,5 @@ function panFor(event: SimEvent): number {
   if (event.x <= 0) {
     return 0;
   }
-  return Math.max(-0.65, Math.min(0.65, (event.x / 128_000) * 1.4 - 0.7));
+  return Math.max(-0.65, Math.min(0.65, (event.x / battleMapWidth) * 1.4 - 0.7));
 }

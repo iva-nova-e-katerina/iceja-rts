@@ -9,6 +9,7 @@ export default function Minimap({ map, snapshot }: MinimapProps) {
   const entities = snapshot?.entities ?? [];
   const corpses = snapshot?.corpses ?? [];
   const hives = snapshot?.hives ?? [];
+  const objectives = snapshot?.objectives ?? [];
 
   return (
     <div className="battle-minimap" title="Мини-карта">
@@ -20,6 +21,16 @@ export default function Minimap({ map, snapshot }: MinimapProps) {
           height={map.heightMm}
           fill={cssColor(map.theme.background)}
         />
+        {map.hazards.map((hazard) => (
+          <circle
+            key={`hazard-${hazard.id}`}
+            cx={hazard.x}
+            cy={hazard.y}
+            r={hazard.radiusMm}
+            fill="#6f9c3f"
+            opacity="0.28"
+          />
+        ))}
         {map.obstacles.map((obstacle, index) => (
           <rect
             key={index}
@@ -41,6 +52,36 @@ export default function Minimap({ map, snapshot }: MinimapProps) {
             strokeWidth="600"
           />
         ))}
+        {objectives.map((objective) => {
+          const color = objective.owner === 0
+            ? "#39e6b0"
+            : objective.owner === 1
+              ? "#ff9d5c"
+              : "#7c9399";
+          const ratio = objective.captureTicks === 0
+            ? 0
+            : Math.min(1, objective.progress / objective.captureTicks);
+          return (
+            <g key={`objective-${objective.id}`}>
+              <circle
+                cx={objective.x}
+                cy={objective.y}
+                r={objective.radiusMm}
+                fill={color}
+                opacity={objective.owner < 0 ? 0.12 : 0.22}
+                stroke={objective.contested ? "#ff5c6c" : color}
+                strokeWidth="500"
+              />
+              <circle
+                cx={objective.x}
+                cy={objective.y}
+                r={objective.radiusMm * (0.25 + ratio * 0.65)}
+                fill={color}
+                opacity="0.42"
+              />
+            </g>
+          );
+        })}
         {corpses.map((corpse) => (
           <circle key={`corpse-${corpse.id}`} cx={corpse.x} cy={corpse.y} r={1_000} fill="#6f5a45" opacity="0.6" />
         ))}

@@ -21,12 +21,13 @@ object GenomeTemplates {
             parts = listOf(
                 part("GANGLION", SocketType.CORE),
                 part("HEART", SocketType.CORE),
+                part("TELEPATHIC_NODE", SocketType.CORE),
                 part("SCUTTLER", SocketType.LEFT, mirrored = true),
                 part("FACET", SocketType.FRONT),
                 part("CHEMO", SocketType.FRONT),
                 part("SPINE", SocketType.TOP)
             ),
-            behavior = BehaviorSpec(presetId = "SKIRMISHER"),
+            behavior = BehaviorSpec(presetId = "SCOUT"),
             catalogVersion = GameCatalog.CATALOG_VERSION
         ),
         Genome(

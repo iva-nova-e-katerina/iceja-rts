@@ -52,6 +52,7 @@ export type PartFlag =
   | "PHEROMONE"
   | "ADRENAL"
   | "NEUROLINK"
+  | "TELEPATHIC"
   | "LURE"
   | "OVIPOSITOR";
 
@@ -146,6 +147,26 @@ export interface SpawnPoint {
   y: number;
 }
 
+export interface MapObjectiveDefinition {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  radiusMm: number;
+  captureTicks: number;
+  scorePerSecond: number;
+  healPerSecond: number;
+}
+
+export interface MapHazardDefinition {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  radiusMm: number;
+  damagePerSecond: number;
+}
+
 export interface MapTheme {
   background: number;
   grid: number;
@@ -163,6 +184,8 @@ export interface MapDefinition {
   spawnB: SpawnPoint;
   deployRadiusMm: number;
   obstacles: Obstacle[];
+  objectives: MapObjectiveDefinition[];
+  hazards: MapHazardDefinition[];
   theme: MapTheme;
 }
 
@@ -431,6 +454,18 @@ export interface ProjectileSnapshot {
   ttl: number;
 }
 
+export interface ObjectiveSnapshot {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  radiusMm: number;
+  owner: number;
+  progress: number;
+  captureTicks: number;
+  contested: boolean;
+}
+
 export interface HiveSnapshot {
   id: number;
   owner: number;
@@ -458,7 +493,9 @@ export interface Snapshot {
   projectiles: ProjectileSnapshot[];
   corpses: CorpseSnapshot[];
   hives: HiveSnapshot[];
+  objectives: ObjectiveSnapshot[];
   scores: number[];
+  controlScores: number[];
   flags: number;
   checksum: number;
 }

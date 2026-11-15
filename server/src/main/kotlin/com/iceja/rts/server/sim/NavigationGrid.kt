@@ -87,6 +87,80 @@ class NavigationGrid(
         return null
     }
 
+    fun hasLineOfSight(startX: Int, startY: Int, endX: Int, endY: Int): Boolean {
+        var x = cellX(startX)
+        var y = cellY(startY)
+        val targetX = cellX(endX)
+        val targetY = cellY(endY)
+        val dx = kotlin.math.abs(targetX - x)
+        val sx = if (x < targetX) 1 else -1
+        val dy = -kotlin.math.abs(targetY - y)
+        val sy = if (y < targetY) 1 else -1
+        var error = dx + dy
+
+        while (true) {
+            if (blocked[index(x, y)]) {
+                return false
+            }
+            if (x == targetX && y == targetY) {
+                return true
+            }
+            val doubledError = 2 * error
+            if (doubledError >= dy) {
+                error += dy
+                x += sx
+            }
+            if (doubledError <= dx) {
+                error += dx
+                y += sy
+            }
+        }
+    }
+
+    fun nextExplorationPoint(startX: Int, startY: Int, visited: MutableSet<Int>): Vec2? {
+        val stride = 10_000
+        val columns = (mapDefinition.widthMm + stride - 1) / stride
+        val rows = (mapDefinition.heightMm + stride - 1) / stride
+        if (columns <= 0 || rows <= 0) {
+            return null
+        }
+        val startColumn = (startX / stride).coerceIn(0, columns - 1)
+        val startRow = (startY / stride).coerceIn(0, rows - 1)
+        val startKey = startRow * columns + startColumn
+        visited += startKey
+        val seen = BooleanArray(columns * rows)
+        seen[startKey] = true
+        val queue = java.util.ArrayDeque<Int>()
+        queue.add(startKey)
+        val directions = listOf(1 to 0, -1 to 0, 0 to 1, 0 to -1, 1 to 1, 1 to -1, -1 to 1, -1 to -1)
+        while (queue.isNotEmpty()) {
+            val key = queue.removeFirst()
+            val column = key % columns
+            val row = key / columns
+            if (key != startKey && !visited.contains(key)) {
+                val centerX = (column * stride + stride / 2).coerceIn(1_000, mapDefinition.widthMm - 1_000)
+                val centerY = (row * stride + stride / 2).coerceIn(1_000, mapDefinition.heightMm - 1_000)
+                if (!isBlockedAt(centerX, centerY)) {
+                    visited += key
+                    return Vec2(centerX, centerY)
+                }
+            }
+            directions.forEach { (dx, dy) ->
+                val nextColumn = column + dx
+                val nextRow = row + dy
+                if (nextColumn !in 0 until columns || nextRow !in 0 until rows) {
+                    return@forEach
+                }
+                val nextKey = nextRow * columns + nextColumn
+                if (!seen[nextKey]) {
+                    seen[nextKey] = true
+                    queue.add(nextKey)
+                }
+            }
+        }
+        return null
+    }
+
     fun isBlockedAt(worldX: Int, worldY: Int): Boolean {
         val x = cellX(worldX)
         val y = cellY(worldY)

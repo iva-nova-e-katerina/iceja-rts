@@ -55,6 +55,7 @@ export default function Battlefield({
   const hostRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<Application | null>(null);
   const worldRef = useRef<Container | null>(null);
+  const objectiveLayerRef = useRef<Container | null>(null);
   const hiveLayerRef = useRef<Container | null>(null);
   const corpseLayerRef = useRef<Container | null>(null);
   const entityLayerRef = useRef<Container | null>(null);
@@ -113,15 +114,17 @@ export default function Battlefield({
 
       const world = new Container();
       const gridLayer = new Container();
+      const objectiveLayer = new Container();
       const corpseLayer = new Container();
       const hiveLayer = new Container();
       const entityLayer = new Container();
       const projectileLayer = new Container();
       const effectLayer = new Container();
-      world.addChild(gridLayer, corpseLayer, hiveLayer, entityLayer, projectileLayer, effectLayer);
+      world.addChild(gridLayer, objectiveLayer, corpseLayer, hiveLayer, entityLayer, projectileLayer, effectLayer);
       app.stage.addChild(world);
       appRef.current = app;
       worldRef.current = world;
+      objectiveLayerRef.current = objectiveLayer;
       hiveLayerRef.current = hiveLayer;
       corpseLayerRef.current = corpseLayer;
       entityLayerRef.current = entityLayer;
@@ -298,6 +301,7 @@ export default function Battlefield({
       appRef.current?.destroy(true, { children: true });
       appRef.current = null;
       worldRef.current = null;
+      objectiveLayerRef.current = null;
       hiveLayerRef.current = null;
       corpseLayerRef.current = null;
       entityLayerRef.current = null;
@@ -311,13 +315,21 @@ export default function Battlefield({
       return;
     }
     const genomesById = new Map(genomes.map((genome) => [genome.genomeId, genome]));
+    const objectiveLayer = objectiveLayerRef.current;
     const hives = hiveLayerRef.current;
     const corpses = corpseLayerRef.current;
     const entities = entityLayerRef.current;
     const projectiles = projectileLayerRef.current;
-    if (hives === null || corpses === null || entities === null || projectiles === null) {
+    if (
+      objectiveLayer === null ||
+      hives === null ||
+      corpses === null ||
+      entities === null ||
+      projectiles === null
+    ) {
       return;
     }
+    clearLayer(objectiveLayer);
     clearLayer(hives);
     clearLayer(projectiles);
 
@@ -330,6 +342,36 @@ export default function Battlefield({
       currentSnapshotRef.current = null;
       matchIdRef.current = snapshot.matchId;
     }
+
+    (snapshot.objectives ?? []).forEach((objective) => {
+      const ownerColor = objective.owner === 0
+        ? 0x39e6b0
+        : objective.owner === 1
+          ? 0xff9d5c
+          : 0x647982;
+      const ratio = objective.captureTicks === 0
+        ? 0
+        : Math.min(1, objective.progress / objective.captureTicks);
+      const marker = new Graphics()
+        .circle(objective.x, objective.y, objective.radiusMm)
+        .fill({ color: ownerColor, alpha: objective.owner < 0 ? 0.045 : 0.09 })
+        .stroke({
+          width: 700,
+          color: objective.contested ? 0xff5c6c : ownerColor,
+          alpha: objective.contested ? 0.9 : 0.55
+        })
+        .circle(objective.x, objective.y, objective.radiusMm * (0.32 + ratio * 0.58))
+        .fill({ color: ownerColor, alpha: 0.12 + ratio * 0.16 });
+      if (objective.contested) {
+        marker
+          .moveTo(objective.x - 1_800, objective.y - 1_800)
+          .lineTo(objective.x + 1_800, objective.y + 1_800)
+          .moveTo(objective.x + 1_800, objective.y - 1_800)
+          .lineTo(objective.x - 1_800, objective.y + 1_800)
+          .stroke({ width: 350, color: 0xff5c6c, alpha: 0.75 });
+      }
+      objectiveLayer.addChild(marker);
+    });
 
     const previous = new Map<number, { x: number; y: number; angle: number }>();
     currentSnapshotRef.current?.entities.forEach((entity) => {
@@ -469,11 +511,12 @@ export default function Battlefield({
       if (event.id <= lastEventIdRef.current) {
         return;
       }
-      if (
-        effectsEnabledRef.current &&
-        (event.type === "HIT" || event.type === "DEATH" || event.type === "OBJECTIVE")
-      ) {
-        spawnImpact(layer, event, effectTimersRef.current);
+      if (effectsEnabledRef.current) {
+        if (event.type === "HIT" || event.type === "DEATH" || event.type === "OBJECTIVE") {
+          spawnImpact(layer, event, effectTimersRef.current);
+        } else if (event.type === "TELEPATHY") {
+          spawnTelepathy(layer, event, snapshotRef.current, effectTimersRef.current);
+        }
       }
     });
     lastEventIdRef.current = Math.max(lastEventIdRef.current, latestId);
@@ -481,6 +524,81 @@ export default function Battlefield({
   }, [ready, events]);
 
   return <div ref={hostRef} className="battlefield" />;
+}
+
+function spawnTelepathy(
+  layer: Container,
+  event: SimEvent,
+  snapshot: Snapshot | null,
+  timers: number[]
+) {
+  const color = event.text === "HELP" ? 0xff6ad5 : 0x78f4ff;
+  const source = snapshot?.entities.find((entity) => entity.id === event.sourceId);
+  const target = snapshot?.entities.find((entity) => entity.id === event.targetId);
+  const centerX = source?.x ?? event.x;
+  const centerY = source?.y ?? event.y;
+
+  for (let index = 0; index < 3; index += 1) {
+    const delay = index * 90;
+    const timer = window.setTimeout(() => {
+      const ring = new Graphics()
+        .circle(0, 0, 720)
+        .stroke({ width: 180, color, alpha: 0.75 });
+      ring.position.set(centerX, centerY);
+      layer.addChild(ring);
+      const startedAt = performance.now();
+      const animate = () => {
+        const progress = Math.min(1, (performance.now() - startedAt) / 760);
+        ring.scale.set(1 + progress * 2.4);
+        ring.alpha = 1 - progress;
+        if (progress < 1 && ring.parent !== null) {
+          requestAnimationFrame(animate);
+        } else {
+          ring.removeFromParent();
+          ring.destroy();
+        }
+      };
+      requestAnimationFrame(animate);
+    }, delay);
+    timers.push(timer);
+  }
+
+  if (source === undefined || target === undefined) {
+    return;
+  }
+
+  const link = new Graphics();
+  const segments = 14;
+  for (let index = 0; index <= segments; index += 1) {
+    const progress = index / segments;
+    const x = source.x + (target.x - source.x) * progress;
+    const y = source.y + (target.y - source.y) * progress;
+    const dx = target.x - source.x;
+    const dy = target.y - source.y;
+    const length = Math.max(1, Math.hypot(dx, dy));
+    const wave = Math.sin(progress * Math.PI * 5 + performance.now() * 0.01) * 1_200;
+    const px = (-dy / length) * wave;
+    const py = (dx / length) * wave;
+    if (index === 0) {
+      link.moveTo(x + px, y + py);
+    } else {
+      link.lineTo(x + px, y + py);
+    }
+  }
+  link.stroke({ width: 220, color, alpha: 0.5 });
+  layer.addChild(link);
+  const linkStartedAt = performance.now();
+  const fadeLink = () => {
+    const progress = Math.min(1, (performance.now() - linkStartedAt) / 700);
+    link.alpha = 0.55 * (1 - progress);
+    if (progress < 1 && link.parent !== null) {
+      requestAnimationFrame(fadeLink);
+    } else {
+      link.removeFromParent();
+      link.destroy();
+    }
+  };
+  requestAnimationFrame(fadeLink);
 }
 
 function spawnImpact(layer: Container, event: SimEvent, timers: number[]) {
@@ -1107,6 +1225,19 @@ function drawGrid(layer: Container, map: MapDefinition) {
   }
   grid.stroke({ width: 250, color: map.theme.grid, alpha: 0.9 });
   layer.addChild(grid);
+
+  map.hazards.forEach((hazard) => {
+    const acid = new Graphics()
+      .ellipse(hazard.x, hazard.y, hazard.radiusMm, hazard.radiusMm * 0.68)
+      .fill({ color: 0x4d7a2c, alpha: 0.22 })
+      .stroke({ width: 450, color: 0x8fc95c, alpha: 0.28 });
+    acid
+      .circle(hazard.x - hazard.radiusMm * 0.3, hazard.y - hazard.radiusMm * 0.15, hazard.radiusMm * 0.12)
+      .fill({ color: 0xa7df72, alpha: 0.18 })
+      .circle(hazard.x + hazard.radiusMm * 0.25, hazard.y + hazard.radiusMm * 0.12, hazard.radiusMm * 0.08)
+      .fill({ color: 0xa7df72, alpha: 0.15 });
+    layer.addChild(acid);
+  });
 
   map.obstacles.forEach((obstacle) => {
     const rock = new Graphics()

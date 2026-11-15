@@ -1,7 +1,7 @@
 package com.iceja.rts.server.catalog
 
 object GameCatalog {
-    const val CATALOG_VERSION: String = "2026.11.1"
+    const val CATALOG_VERSION: String = "2026.11.2"
 
     val ruleset: Ruleset = Ruleset()
 
@@ -807,6 +807,18 @@ object GameCatalog {
             description = "Делит обзор"
         ),
         PartDefinition(
+            id = "TELEPATHIC_NODE",
+            name = "Телепатический узел",
+            category = PartCategory.UTILITY,
+            socket = SocketType.CORE,
+            cost = 220,
+            massKg = 4,
+            hpBonus = 15,
+            energyDrainMilliPerSecond = 300,
+            flags = setOf(PartFlag.TELEPATHIC),
+            description = "Мысленный зов союзников к бою"
+        ),
+        PartDefinition(
             id = "LURE",
             name = "Биолюминесцентная приманка",
             category = PartCategory.UTILITY,
@@ -825,7 +837,7 @@ object GameCatalog {
     private fun visualFor(partId: String): PartVisual = when (partId) {
         "GANGLION", "CEREBRAL", "HIVEMIND", "HEART", "METABOLIC", "HEMOPUMP", "NEURALTRUNK",
         "TARGETING", "REGEN", "ANTITOXIN", "NECTARCROP", "OVIPOSITOR", "SYMBIOTE",
-        "BURROWGLAND", "ADRENAL", "NEUROLINK" ->
+        "BURROWGLAND", "ADRENAL", "NEUROLINK", "TELEPATHIC_NODE" ->
             PartVisual(PartVisibility.INTERNAL, PartShape.ORB)
         "SCUTTLER", "CLAWED", "SPRINT", "SPIDERLEGS" ->
             PartVisual(PartVisibility.EXTERNAL, PartShape.LEG)
@@ -918,6 +930,19 @@ object GameCatalog {
             adaptability = 70
         ),
         BehaviorPresetDefinition(
+            id = "SCOUT",
+            name = "Разведчик",
+            cp = 9,
+            description = "Обходит карту, избегает боя, зовёт помощь при угрозе",
+            aggression = 15,
+            caution = 80,
+            cohesion = 10,
+            greed = 30,
+            loyalty = 75,
+            focus = 30,
+            adaptability = 85
+        ),
+        BehaviorPresetDefinition(
             id = "SCAVENGER",
             name = "Падальщик",
             cp = 8,
@@ -981,6 +1006,20 @@ object GameCatalog {
                 obstacle = 0x1B2A30,
                 obstacleStroke = 0x2F4A50,
                 border = 0x2D5962
+            ),
+            obstacles = listOf(
+                Obstacle(64_000, 60_000, 16_000, 12_000),
+                Obstacle(116_000, 126_000, 16_000, 12_000),
+                Obstacle(80_000, 92_000, 8_000, 8_000)
+            ),
+            objectives = listOf(
+                MapObjectiveDefinition("west-nectar", "Западный нектар", 64_000, 96_000),
+                MapObjectiveDefinition("center-nectar", "Центральный нектар", 96_000, 96_000),
+                MapObjectiveDefinition("east-nectar", "Восточный нектар", 128_000, 96_000)
+            ),
+            hazards = listOf(
+                MapHazardDefinition("duel-acid-west", x = 72_000, y = 36_000, radiusMm = 7_000),
+                MapHazardDefinition("duel-acid-east", x = 120_000, y = 156_000, radiusMm = 7_000)
             )
         ),
         MapDefinition(
@@ -994,11 +1033,20 @@ object GameCatalog {
                 border = 0x3A6A80
             ),
             obstacles = listOf(
-                Obstacle(38_000, 38_000, 8_000, 8_000),
-                Obstacle(82_000, 82_000, 8_000, 8_000),
-                Obstacle(38_000, 82_000, 8_000, 8_000),
-                Obstacle(82_000, 38_000, 8_000, 8_000),
-                Obstacle(60_000, 60_000, 8_000, 8_000)
+                Obstacle(54_000, 54_000, 12_000, 12_000),
+                Obstacle(126_000, 126_000, 12_000, 12_000),
+                Obstacle(54_000, 126_000, 12_000, 12_000),
+                Obstacle(126_000, 54_000, 12_000, 12_000),
+                Obstacle(80_000, 80_000, 12_000, 12_000)
+            ),
+            objectives = listOf(
+                MapObjectiveDefinition("west-relay", "Западный узел", 64_000, 96_000),
+                MapObjectiveDefinition("center-relay", "Центральный узел", 96_000, 96_000),
+                MapObjectiveDefinition("east-relay", "Восточный узел", 128_000, 96_000)
+            ),
+            hazards = listOf(
+                MapHazardDefinition("pillars-acid-north", x = 96_000, y = 36_000, radiusMm = 6_000),
+                MapHazardDefinition("pillars-acid-south", x = 96_000, y = 156_000, radiusMm = 6_000)
             )
         ),
         MapDefinition(
@@ -1012,10 +1060,20 @@ object GameCatalog {
                 border = 0x4C7A3A
             ),
             obstacles = listOf(
-                Obstacle(30_000, 50_000, 10_000, 6_000),
-                Obstacle(88_000, 72_000, 10_000, 6_000),
-                Obstacle(54_000, 20_000, 6_000, 10_000),
-                Obstacle(68_000, 98_000, 6_000, 10_000)
+                Obstacle(44_000, 72_000, 16_000, 10_000),
+                Obstacle(132_000, 108_000, 16_000, 10_000),
+                Obstacle(80_000, 28_000, 10_000, 16_000),
+                Obstacle(102_000, 148_000, 10_000, 16_000)
+            ),
+            objectives = listOf(
+                MapObjectiveDefinition("west-marsh", "Западная топь", 64_000, 96_000, healPerSecond = 3),
+                MapObjectiveDefinition("center-marsh", "Центральная топь", 96_000, 96_000, healPerSecond = 3),
+                MapObjectiveDefinition("east-marsh", "Восточная топь", 128_000, 96_000, healPerSecond = 3)
+            ),
+            hazards = listOf(
+                MapHazardDefinition("marsh-acid-west", x = 60_000, y = 132_000, radiusMm = 8_000),
+                MapHazardDefinition("marsh-acid-east", x = 132_000, y = 64_000, radiusMm = 8_000),
+                MapHazardDefinition("marsh-acid-center", x = 96_000, y = 156_000, radiusMm = 6_000)
             )
         )
     )

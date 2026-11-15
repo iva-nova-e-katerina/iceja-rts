@@ -64,12 +64,31 @@ class BehaviorEngineTest {
             enemies = emptyList(),
             ownHive = hiveA,
             enemyHive = hiveB,
-            tick = 0
+            tick = 0,
+            enemyHiveVisible = true
         )
 
         assertEquals("SIEGE", decision.mode)
         assertTrue(decision.attackHive)
         assertEquals(hiveB.id, decision.attackTargetId)
+    }
+
+    @Test
+    fun berserkPatrolsWithoutVisibleEnemy() {
+        val berserk = creature(3, 0, GenomeTemplates.all.first { it.name == "Brawler" }, 60_000, 64_000)
+
+        val decision = BehaviorEngine.decide(
+            creature = berserk,
+            friends = listOf(berserk),
+            enemies = emptyList(),
+            ownHive = hiveA,
+            enemyHive = hiveB,
+            tick = 0
+        )
+
+        assertEquals("PATROL", decision.mode)
+        assertEquals(0, decision.attackTargetId)
+        assertTrue(decision.attackHive.not())
     }
 
     private fun creature(id: Int, ownerId: Int, genome: Genome, x: Int, y: Int): Creature {

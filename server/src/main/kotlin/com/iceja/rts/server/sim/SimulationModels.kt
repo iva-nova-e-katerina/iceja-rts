@@ -93,6 +93,12 @@ class Creature(
     var pathGoalY: Int = 0
     var nextRepathTick: Int = 0
     var lastDamageTick: Int = -10_000
+    val scoutVisitedCells: MutableSet<Int> = mutableSetOf()
+    var scoutTargetX: Int = 0
+    var scoutTargetY: Int = 0
+    var lastAttackerId: Int = 0
+    var lastAttackerX: Int = 0
+    var lastAttackerY: Int = 0
     var lastDecisionTick: Int = 0
     var aiMode: String = "IDLE"
     var aiReason: String = "NO_TARGET"
@@ -153,6 +159,32 @@ data class SimEvent(
 )
 
 @Serializable
+class ObjectivePoint(
+    val id: String,
+    val name: String,
+    val x: Int,
+    val y: Int,
+    val radiusMm: Int,
+    val captureTicks: Int,
+    val scorePerSecond: Int,
+    val healPerSecond: Int
+) {
+    var ownerId: Int = -1
+    var progress: Int = 0
+    var contested: Boolean = false
+}
+
+data class TelepathicAlert(
+    val ownerId: Int,
+    val sourceId: Int,
+    val x: Int,
+    val y: Int,
+    val targetId: Int,
+    val expiresTick: Int,
+    val updatedTick: Int
+)
+
+@Serializable
 data class EntitySnapshot(
     val id: Int,
     val kind: String,
@@ -205,6 +237,19 @@ data class HiveSnapshot(
 )
 
 @Serializable
+data class ObjectiveSnapshot(
+    val id: String,
+    val name: String,
+    val x: Int,
+    val y: Int,
+    val radiusMm: Int,
+    val owner: Int,
+    val progress: Int,
+    val captureTicks: Int,
+    val contested: Boolean
+)
+
+@Serializable
 data class Snapshot(
     val tick: Int,
     val serverTimeMs: Long,
@@ -213,7 +258,9 @@ data class Snapshot(
     val projectiles: List<ProjectileSnapshot>,
     val corpses: List<CorpseSnapshot>,
     val hives: List<HiveSnapshot>,
+    val objectives: List<ObjectiveSnapshot>,
     val scores: List<Int>,
+    val controlScores: List<Int>,
     val flags: Int,
     val checksum: Long
 )

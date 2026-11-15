@@ -2541,3 +2541,20 @@ label select,
 .battle-settings-popover input {
   accent-color: var(--green);
 }
+
+.battle-settings-popover .volume-control {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 5px 8px;
+}
+
+.battle-settings-popover .volume-control small {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.battle-settings-popover .volume-control input[type="range"] {
+  grid-column: 1 / -1;
+  width: 100%;
+  accent-color: var(--green);
+}

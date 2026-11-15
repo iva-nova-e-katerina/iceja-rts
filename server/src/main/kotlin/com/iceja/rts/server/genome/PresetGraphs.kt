@@ -188,7 +188,7 @@ object PresetGraphs {
                 sequence("siege-attack", "siege-target", "siege-attack-action"),
                 node("siege-target", "HasTarget"),
                 node("siege-attack-action", "AttackTarget", text = "enemy.nearest"),
-                node("siege-move", "MoveTo", text = "enemyHive")
+                node("siege-move", "Patrol")
             )
         ),
         PresetGraph(

@@ -363,7 +363,7 @@ private fun validateArmyRequest(
             return error("ARMY_INVALID", "Creature belongs to another player")
         }
         totalCost += creature.stats.costBm
-        if (unit.x < 0 || unit.y < 0 || unit.x > 128_000 || unit.y > 128_000) {
+        if (unit.x < 0 || unit.y < 0 || unit.x > 192_000 || unit.y > 192_000) {
             return error("ARMY_INVALID", "Creature position is outside the map")
         }
     }

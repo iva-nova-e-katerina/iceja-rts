@@ -89,6 +89,7 @@ enum class PartFlag {
     PHEROMONE,
     ADRENAL,
     NEUROLINK,
+    TELEPATHIC,
     LURE,
     OVIPOSITOR
 }
@@ -237,15 +238,39 @@ data class MapTheme(
 )
 
 @Serializable
+data class MapObjectiveDefinition(
+    val id: String,
+    val name: String,
+    val x: Int,
+    val y: Int,
+    val radiusMm: Int = 4_000,
+    val captureTicks: Int = 90,
+    val scorePerSecond: Int = 1,
+    val healPerSecond: Int = 2
+)
+
+@Serializable
+data class MapHazardDefinition(
+    val id: String,
+    val name: String = "Кислотная лужа",
+    val x: Int,
+    val y: Int,
+    val radiusMm: Int = 6_000,
+    val damagePerSecond: Int = 2
+)
+
+@Serializable
 data class MapDefinition(
     val id: String,
     val name: String,
-    val widthMm: Int = 128_000,
-    val heightMm: Int = 128_000,
-    val spawnA: SpawnPoint = SpawnPoint(20_000, 64_000),
-    val spawnB: SpawnPoint = SpawnPoint(108_000, 64_000),
-    val deployRadiusMm: Int = 20_000,
+    val widthMm: Int = 192_000,
+    val heightMm: Int = 192_000,
+    val spawnA: SpawnPoint = SpawnPoint(28_000, 96_000),
+    val spawnB: SpawnPoint = SpawnPoint(164_000, 96_000),
+    val deployRadiusMm: Int = 24_000,
     val obstacles: List<Obstacle> = emptyList(),
+    val objectives: List<MapObjectiveDefinition> = emptyList(),
+    val hazards: List<MapHazardDefinition> = emptyList(),
     val theme: MapTheme = MapTheme(
         background = 0x070B0D,
         grid = 0x12242A,

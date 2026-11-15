@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getWsTicket, matchWebSocketUrl } from "../../api";
-import { BattleAudio, unlockBattleAudio } from "../../audio/battleAudio";
+import { BattleAudio, setBattleMapWidth, unlockBattleAudio } from "../../audio/battleAudio";
 import type {
   Catalog,
   EventBatchPayload,
@@ -29,6 +29,11 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem("iceja.sound") !== "off");
+  const [audioVolume, setAudioVolume] = useState(() => {
+    const raw = localStorage.getItem("iceja.audioVolume");
+    const stored = raw === null ? 80 : Number(raw);
+    return Number.isFinite(stored) ? Math.max(0, Math.min(100, stored)) : 80;
+  });
   const [audioState, setAudioState] = useState("suspended");
   const [cleanMode, setCleanMode] = useState(false);
   const [visualSettings, setVisualSettings] = useState(() => {
@@ -45,12 +50,12 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
   const resultRef = useRef<MatchResult | null>(null);
   const genomesRef = useRef<GenomeSummary[]>([]);
   const audioRef = useRef<BattleAudio | null>(null);
-  const matchActiveRef = useRef(false);
 
   useEffect(() => {
     const audio = new BattleAudio();
     audioRef.current = audio;
     audio.setEnabled(soundEnabled);
+    audio.setVolume(audioVolume / 100);
     const refreshState = () => setAudioState(audio.state());
     const stateTimer = window.setTimeout(refreshState, 250);
     const unlock = () => {
@@ -59,9 +64,6 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
       window.setTimeout(() => {
         refreshState();
         if (audio.state() === "running") {
-          if (matchActiveRef.current) {
-            audio.startAmbient();
-          }
           window.removeEventListener("pointerdown", unlock);
         }
       }, 200);
@@ -78,6 +80,21 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
   useEffect(() => {
     localStorage.setItem("iceja.visualSettings", JSON.stringify(visualSettings));
   }, [visualSettings]);
+
+  useEffect(() => {
+    localStorage.setItem("iceja.audioVolume", String(audioVolume));
+    audioRef.current?.setVolume(audioVolume / 100);
+  }, [audioVolume]);
+
+  useEffect(() => {
+    if (start === null) {
+      return;
+    }
+    const activeMap = catalog.maps.find((item) => item.id === start.mapId);
+    if (activeMap !== undefined) {
+      setBattleMapWidth(activeMap.widthMm);
+    }
+  }, [catalog.maps, start]);
 
   useEffect(() => {
     localStorage.setItem("iceja.sound", soundEnabled ? "on" : "off");
@@ -117,8 +134,6 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
             setSnapshot(payload.snapshot);
             setStatus("LIVE");
             setError(null);
-            matchActiveRef.current = true;
-            audioRef.current?.startAmbient();
             audioRef.current?.playReady();
           } else if (message.type === "snapshot") {
             setSnapshot(message.payload as Snapshot);
@@ -129,8 +144,6 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
           } else if (message.type === "match_end") {
             const payload = message.payload as MatchEndPayload;
             resultRef.current = payload.result;
-            matchActiveRef.current = false;
-            audioRef.current?.stopAmbient();
             setResult(payload.result);
             setStatus("FINISHED");
             audioRef.current?.playMatchEnd(payload.result.winner);
@@ -180,6 +193,8 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
   const hiveB = snapshot?.hives.find((hive) => hive.owner === 1);
   const countA = snapshot?.entities.filter((entity) => entity.owner === 0).length ?? 0;
   const countB = snapshot?.entities.filter((entity) => entity.owner === 1).length ?? 0;
+  const pointsA = snapshot?.objectives.filter((objective) => objective.owner === 0).length ?? 0;
+  const pointsB = snapshot?.objectives.filter((objective) => objective.owner === 1).length ?? 0;
   const selectedEntity = snapshot?.entities.find((entity) => entity.id === selectedId) ?? null;
   const selectedGenome = selectedEntity === null ? undefined : genomes.find((genome) => genome.genomeId === selectedEntity.genomeId);
 
@@ -228,6 +243,18 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
                 />
                 Мини-карта
               </label>
+              <label className="volume-control">
+                <span>Громкость</span>
+                <small>{audioVolume}%</small>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="5"
+                  value={audioVolume}
+                  onChange={(event) => setAudioVolume(Number(event.target.value))}
+                />
+              </label>
             </div>
           </details>
           <button className="secondary" onClick={() => setCleanMode((value) => !value)}>
@@ -242,14 +269,9 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
               if (next) {
                 audioRef.current?.resume();
                 window.setTimeout(() => {
-                  if (matchActiveRef.current) {
-                    audioRef.current?.startAmbient();
-                  }
                   audioRef.current?.playTest();
                   setAudioState(audioRef.current?.state() ?? "unavailable");
                 }, 150);
-              } else {
-                audioRef.current?.stopAmbient();
               }
             }}
             title="Включить или выключить звуки боя"
@@ -262,14 +284,11 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
               setSoundEnabled(true);
               audioRef.current?.resume();
               window.setTimeout(() => {
-                if (matchActiveRef.current) {
-                  audioRef.current?.startAmbient();
-                }
                 audioRef.current?.playDeathTest();
                 setAudioState(audioRef.current?.state() ?? "unavailable");
               }, 150);
             }}
-            title="Проверить звук: сигнал и звук гибели"
+            title="Проверить звук: короткая демонстрация боевых звуков"
           >
             Тест звука
           </button>
@@ -291,6 +310,7 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
           hive={hiveA}
           count={countA}
           score={snapshot?.scores[0] ?? 0}
+          controlPoints={pointsA}
           color="alpha"
         />
         <div className="versus">VS</div>
@@ -299,6 +319,7 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
           hive={hiveB}
           count={countB}
           score={snapshot?.scores[1] ?? 0}
+          controlPoints={pointsB}
           color="beta"
         />
       </div>
@@ -427,12 +448,14 @@ function PlayerHud({
   hive,
   count,
   score,
+  controlPoints,
   color
 }: {
   name: string;
   hive: { hp: number; maxHp: number } | undefined;
   count: number;
   score: number;
+  controlPoints: number;
   color: "alpha" | "beta";
 }) {
   const percent = hive === undefined || hive.maxHp === 0 ? 0 : (hive.hp / hive.maxHp) * 100;
@@ -447,7 +470,7 @@ function PlayerHud({
       </div>
       <div className="player-hud-footer">
         <span>Улей {hive?.hp ?? 0}/{hive?.maxHp ?? 0}</span>
-        <span>{score} урона</span>
+        <span>{score} урона · {controlPoints} точек</span>
       </div>
     </div>
   );
@@ -468,6 +491,7 @@ function resultReasonLabel(reason: string): string {
     ANNIHILATION: "Армия уничтожена",
     TIMEOUT_HIVE_HP: "Время вышло: больше HP улья",
     TIMEOUT_CREATURE_HP: "Время вышло: больше HP существ",
+    TIMEOUT_OBJECTIVES: "Время вышло: больше контроля точек",
     TIMEOUT_DAMAGE: "Время вышло: больше урона",
     TIMEOUT_DRAW: "Время вышло: ничья",
     SIMULTANEOUS_HIVE_DESTRUCTION: "Оба улья уничтожены",
@@ -514,6 +538,13 @@ function modeLabel(mode: string): string {
     HUNT: "Охота",
     HARVEST: "Сбор",
     REGROUP: "Сбор группы",
+    RESPOND: "Отвечает на зов",
+    COUNTERATTACK: "Контратака",
+    CAPTURE: "Захват точки",
+    KITE: "Кайтинг",
+    FLANK: "Обход",
+    SCOUT: "Разведка",
+    RETREAT: "Отступление",
     PATROL: "Патруль",
     IDLE: "Ожидание",
     SIEGE: "Осада",
@@ -531,6 +562,15 @@ function reasonLabel(reason: string): string {
     GUARD_POINT: "Охраняет точку",
     HIVE_UNDER_ATTACK: "Улей атакован",
     REGROUPING: "Собирается с группой",
+    TELEPATHIC_CALL: "Телепатический зов",
+    DAMAGE_RESPONSE: "Ответ на повреждения",
+    OBJECTIVE_CONTROL: "Контроль нектара",
+    KEEPING_RANGE: "Держит дистанцию",
+    APPROACHING: "Сближается с целью",
+    FLANKING: "Обходит с фланга",
+    SELF_DEFENSE: "Самооборона",
+    RECON: "Обход карты",
+    OUTNUMBERED: "Врагов больше",
     KEEP_DISTANCE: "Держит дистанцию",
     LOW_HP: "Мало здоровья",
     LOW_ENERGY: "Мало энергии",
@@ -561,6 +601,12 @@ function eventText(event: SimEvent, snapshot: Snapshot | null, genomes: GenomeSu
       return `${targetName} получает ${event.value} урона`;
     case "MISS":
       return `Промах по ${targetName}`;
+    case "TELEPATHY":
+      return event.text === "HELP" ? "Зов о помощи" : "Телепатический зов на бой";
+    case "CAPTURE":
+      return `${ownerName(event.value)} захватывает ${event.text}`;
+    case "OBJECTIVE_LOST":
+      return `${ownerName(event.sourceId)} теряет ${event.text}`;
     case "DEATH":
       return `${targetName} уничтожен`;
     case "HEAL":
