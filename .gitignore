@@ -1,6 +1,7 @@
 target/
 .run/
 node_modules/
+tmp/
 *.log
 /actions-runner/
 env.prod.example

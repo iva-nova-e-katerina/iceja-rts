@@ -15,7 +15,7 @@ object GameCatalog {
             cost = 40,
             sockets = listOf(
                 SocketCapacity(SocketType.CORE, 2),
-                SocketCapacity(SocketType.FRONT, 1),
+                SocketCapacity(SocketType.FRONT, 2),
                 SocketCapacity(SocketType.UNDER, 1)
             ),
             comfortableMassKg = 80,

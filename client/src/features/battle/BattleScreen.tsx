@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getWsTicket, matchWebSocketUrl } from "../../api";
+import { BattleAudio, unlockBattleAudio } from "../../audio/battleAudio";
 import type {
   Catalog,
   EventBatchPayload,
@@ -26,8 +27,49 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
   const [status, setStatus] = useState("CONNECTING");
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem("iceja.sound") !== "off");
+  const [audioState, setAudioState] = useState("suspended");
   const resultRef = useRef<MatchResult | null>(null);
   const genomesRef = useRef<GenomeSummary[]>([]);
+  const audioRef = useRef<BattleAudio | null>(null);
+  const matchActiveRef = useRef(false);
+
+  useEffect(() => {
+    const audio = new BattleAudio();
+    audioRef.current = audio;
+    audio.setEnabled(soundEnabled);
+    const refreshState = () => setAudioState(audio.state());
+    const stateTimer = window.setTimeout(refreshState, 250);
+    const unlock = () => {
+      unlockBattleAudio();
+      audio.resume();
+      window.setTimeout(() => {
+        refreshState();
+        if (audio.state() === "running") {
+          if (matchActiveRef.current) {
+            audio.startAmbient();
+          }
+          window.removeEventListener("pointerdown", unlock);
+        }
+      }, 200);
+    };
+    window.addEventListener("pointerdown", unlock);
+    return () => {
+      window.clearTimeout(stateTimer);
+      window.removeEventListener("pointerdown", unlock);
+      audio.dispose();
+      audioRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("iceja.sound", soundEnabled ? "on" : "off");
+    audioRef.current?.setEnabled(soundEnabled);
+    const timer = window.setTimeout(() => {
+      setAudioState(audioRef.current?.state() ?? "unavailable");
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [soundEnabled]);
 
   useEffect(() => {
     let disposed = false;
@@ -58,16 +100,23 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
             setSnapshot(payload.snapshot);
             setStatus("LIVE");
             setError(null);
+            matchActiveRef.current = true;
+            audioRef.current?.startAmbient();
+            audioRef.current?.playReady();
           } else if (message.type === "snapshot") {
             setSnapshot(message.payload as Snapshot);
           } else if (message.type === "event_batch") {
             const payload = message.payload as EventBatchPayload;
+            audioRef.current?.playEvents(payload.events);
             setEvents((current) => [...current, ...payload.events].slice(-300));
           } else if (message.type === "match_end") {
             const payload = message.payload as MatchEndPayload;
             resultRef.current = payload.result;
+            matchActiveRef.current = false;
+            audioRef.current?.stopAmbient();
             setResult(payload.result);
             setStatus("FINISHED");
+            audioRef.current?.playMatchEnd(payload.result.winner);
           } else if (message.type === "error") {
             const payload = message.payload as { message?: string };
             setError(payload.message ?? "Server error");
@@ -121,17 +170,65 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
     <div className="battle-layout">
       <div className="battle-topbar">
         <div>
-          <span className="eyebrow">Live spectator</span>
-          <h2>{start?.mapId ?? "Loading arena"}</h2>
+          <span className="eyebrow">Живой бой</span>
+          <h2>{catalog.maps.find((item) => item.id === start?.mapId)?.name ?? "Загрузка арены"}</h2>
         </div>
         <div className="battle-timer">
           <span className={`status-dot ${status.toLowerCase()}`} />
           {formatTime(snapshot?.tick ?? 0, catalog.ruleset.tickRate)}
         </div>
-        <button className="secondary" onClick={onExit}>
-          Leave match
-        </button>
+        <div className="battle-actions">
+          <button
+            className={soundEnabled && audioState !== "running" ? "primary" : "secondary"}
+            data-audio-state={audioState}
+            onClick={() => {
+              const next = !soundEnabled;
+              setSoundEnabled(next);
+              if (next) {
+                audioRef.current?.resume();
+                window.setTimeout(() => {
+                  if (matchActiveRef.current) {
+                    audioRef.current?.startAmbient();
+                  }
+                  audioRef.current?.playTest();
+                  setAudioState(audioRef.current?.state() ?? "unavailable");
+                }, 150);
+              } else {
+                audioRef.current?.stopAmbient();
+              }
+            }}
+            title="Включить или выключить звуки боя"
+          >
+            {soundEnabled ? (audioState === "running" ? "Звук: вкл" : "Включить звук") : "Звук: выкл"}
+          </button>
+          <button
+            className="secondary"
+            onClick={() => {
+              setSoundEnabled(true);
+              audioRef.current?.resume();
+              window.setTimeout(() => {
+                if (matchActiveRef.current) {
+                  audioRef.current?.startAmbient();
+                }
+                audioRef.current?.playDeathTest();
+                setAudioState(audioRef.current?.state() ?? "unavailable");
+              }, 150);
+            }}
+            title="Проверить звук: сигнал и звук гибели"
+          >
+            Тест звука
+          </button>
+          <button className="secondary" onClick={onExit}>
+            Выйти
+          </button>
+        </div>
       </div>
+
+      {soundEnabled && audioState !== "running" && (
+        <div className="audio-hint">
+          Браузер пока не разрешил звук. Нажми «Включить звук» или «Тест».
+        </div>
+      )}
 
       <div className="battle-scorebar">
         <PlayerHud
@@ -158,12 +255,15 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
             snapshot={snapshot}
             genomes={genomes}
             selectedId={selectedId}
-            onSelect={setSelectedId}
+            onSelect={(entityId) => {
+              audioRef.current?.resume();
+              setSelectedId(entityId);
+            }}
           />
           {snapshot === null && (
             <div className="battle-loading">
               <div className="spinner" />
-              <p>Awaiting first snapshot…</p>
+              <p>Ждём первый кадр…</p>
             </div>
           )}
           {error !== null && <div className="battle-error">{error}</div>}
@@ -172,24 +272,27 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
         <aside className="battle-side">
           <div className="panel battle-inspector">
             <div className="panel-header">
-              <h3>Inspector</h3>
-              <span className="muted">{selectedEntity === null ? "no selection" : `#${selectedEntity.id}`}</span>
+              <h3>Инспектор</h3>
+              <span className="muted">{selectedEntity === null ? "ничего не выбрано" : `#${selectedEntity.id}`}</span>
             </div>
-            {selectedEntity === null && <p className="muted">Click a creature to inspect its genome and decision state.</p>}
+            {selectedEntity === null && <p className="muted">Нажми на существо, чтобы увидеть его состояние и решение.</p>}
             {selectedEntity !== null && (
               <div className="inspector-body">
-                <h4>{selectedGenome?.name ?? `Unit ${selectedEntity.id}`}</h4>
+                <h4>{selectedGenome === undefined ? `Существо #${selectedEntity.id}` : displayGenomeName(selectedGenome.name)}</h4>
                 <p className="muted">
-                  {selectedEntity.owner === 0 ? "Alpha" : "Beta"} · {selectedGenome?.chassisId ?? "unknown"} ·{" "}
-                  {selectedGenome?.behaviorPresetId ?? "unknown"}
+                  {ownerName(selectedEntity.owner)} ·{" "}
+                  {catalog.chassis.find((chassis) => chassis.id === selectedGenome?.chassisId)?.name ?? "неизвестно"} ·{" "}
+                  {catalog.behaviorPresets.find((preset) => preset.id === selectedGenome?.behaviorPresetId)?.name ??
+                    "неизвестно"}
                 </p>
                 <div className="stat-grid compact">
-                  <Stat label="HP" value={`${selectedEntity.hp}/${selectedEntity.maxHp}`} />
-                  <Stat label="Energy" value={selectedEntity.energy} />
-                  <Stat label="Mode" value={selectedEntity.mode} />
-                  <Stat label="Reason" value={selectedEntity.reason} />
-                  <Stat label="Target" value={selectedEntity.targetId === 0 ? "none" : `#${selectedEntity.targetId}`} />
-                  <Stat label="State" value={stateLabel(selectedEntity.state)} />
+                  <Stat label="Здоровье" value={`${selectedEntity.hp}/${selectedEntity.maxHp}`} />
+                  <Stat label="Энергия" value={selectedEntity.energy} />
+                  <Stat label="Режим" value={modeLabel(selectedEntity.mode)} />
+                  <Stat label="Причина" value={reasonLabel(selectedEntity.reason)} />
+                  <Stat label="Узел" value={selectedEntity.nodeId || "по пресету"} />
+                  <Stat label="Цель" value={selectedEntity.targetId === 0 ? "нет" : `#${selectedEntity.targetId}`} />
+                  <Stat label="Состояние" value={stateLabel(selectedEntity.state)} />
                 </div>
               </div>
             )}
@@ -197,11 +300,11 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
 
           <div className="panel event-panel">
             <div className="panel-header">
-              <h3>Event feed</h3>
+              <h3>События</h3>
               <span className="muted">{events.length}</span>
             </div>
             <div className="event-list">
-              {events.length === 0 && <p className="muted">No events yet.</p>}
+              {events.length === 0 && <p className="muted">Событий пока нет.</p>}
               {events
                 .slice(-14)
                 .reverse()
@@ -219,23 +322,23 @@ export default function BattleScreen({ catalog, matchId, onExit }: BattleScreenP
       {result !== null && (
         <div className="result-overlay">
           <div className="result-card">
-            <span className="eyebrow">Match finished</span>
-            <h2>{result.winner === -1 ? "Draw" : `${players[result.winner]?.nickname ?? "Winner"} wins`}</h2>
-            <p className="muted">{result.reason}</p>
+            <span className="eyebrow">Бой окончен</span>
+            <h2>{result.winner === -1 ? "Ничья" : `${players[result.winner]?.nickname ?? "Победитель"} победил`}</h2>
+            <p className="muted">{resultReasonLabel(result.reason)}</p>
             <div className="result-stats">
               {result.stats.map((stats) => (
                 <div key={stats.playerId} className="result-stat">
                   <strong>{stats.nickname}</strong>
-                  <span>{stats.damageDealt} damage</span>
-                  <span>{stats.kills} kills</span>
-                  <span>{stats.survivingCreatures} survivors</span>
-                  <span>{stats.hiveHp} hive HP</span>
+                  <span>{stats.damageDealt} урона</span>
+                  <span>{stats.kills} убийств</span>
+                  <span>{stats.survivingCreatures} выжило</span>
+                  <span>{stats.hiveHp} HP улья</span>
                 </div>
               ))}
             </div>
-            <p className="muted">Replay is available in the Replays tab.</p>
+            <p className="muted">Реплей доступен во вкладке «Реплеи».</p>
             <button className="primary" onClick={onExit}>
-              Back to army
+              Вернуться к армии
             </button>
           </div>
         </div>
@@ -262,14 +365,14 @@ function PlayerHud({
     <div className={`player-hud ${color}`}>
       <div className="player-hud-title">
         <strong>{name}</strong>
-        <span>{count} creatures</span>
+        <span>{count} существ</span>
       </div>
       <div className="bar">
         <span className="bar-fill" style={{ width: `${percent}%` }} />
       </div>
       <div className="player-hud-footer">
-        <span>Hive {hive?.hp ?? 0}/{hive?.maxHp ?? 0}</span>
-        <span>{score} damage</span>
+        <span>Улей {hive?.hp ?? 0}/{hive?.maxHp ?? 0}</span>
+        <span>{score} урона</span>
       </div>
     </div>
   );
@@ -284,6 +387,38 @@ function Stat({ label, value }: { label: string; value: string | number }) {
   );
 }
 
+function resultReasonLabel(reason: string): string {
+  return {
+    HIVE_DESTROYED: "Улей уничтожен",
+    ANNIHILATION: "Армия уничтожена",
+    TIMEOUT_HIVE_HP: "Время вышло: больше HP улья",
+    TIMEOUT_CREATURE_HP: "Время вышло: больше HP существ",
+    TIMEOUT_DAMAGE: "Время вышло: больше урона",
+    TIMEOUT_DRAW: "Время вышло: ничья",
+    SIMULTANEOUS_HIVE_DESTRUCTION: "Оба улья уничтожены",
+    TIMEOUT: "Время вышло"
+  }[reason] ?? reason;
+}
+
+function displayGenomeName(name: string): string {
+  return {
+    Scout: "Разведчик",
+    Brawler: "Боец",
+    Spitter: "Плеватель",
+    Tank: "Танк",
+    Swarm: "Рой",
+    Artillery: "Артиллерия",
+    Healer: "Лекарь",
+    Burrower: "Копатель",
+    Flyer: "Летун",
+    Harvester: "Сборщик"
+  }[name] ?? name;
+}
+
+function ownerName(owner: number): string {
+  return owner === 0 ? "Альфа" : "Бета";
+}
+
 function formatTime(tick: number, tickRate: number): string {
   const totalSeconds = Math.floor(tick / tickRate);
   const minutes = Math.floor(totalSeconds / 60);
@@ -292,30 +427,72 @@ function formatTime(tick: number, tickRate: number): string {
 }
 
 function stateLabel(state: number): string {
-  return ["IDLE", "MOVING", "ATTACKING", "HARVESTING", "FLEEING", "STUNNED", "BURROWED", "DEAD"][state] ?? "UNKNOWN";
+  return ["Стоит", "Идёт", "Атакует", "Собирает", "Убегает", "Оглушено", "В норе", "Мёртво"][state] ?? "Неизвестно";
+}
+
+function modeLabel(mode: string): string {
+  return {
+    SURVIVE: "Выживание",
+    REST: "Отдых",
+    DEFEND_HIVE: "Защита улья",
+    ATTACK: "Атака",
+    HUNT: "Охота",
+    HARVEST: "Сбор",
+    REGROUP: "Сбор группы",
+    PATROL: "Патруль",
+    IDLE: "Ожидание",
+    SIEGE: "Осада",
+    SCAVENGE: "Поиск падали"
+  }[mode] ?? mode;
+}
+
+function reasonLabel(reason: string): string {
+  return {
+    TARGET_IN_RANGE: "Цель в радиусе",
+    TARGET_VISIBLE: "Видит цель",
+    NO_TARGET: "Нет цели",
+    NO_ACTION: "Нет действия",
+    NO_SENSORS: "Нет глаз",
+    GUARD_POINT: "Охраняет точку",
+    HIVE_UNDER_ATTACK: "Улей атакован",
+    REGROUPING: "Собирается с группой",
+    KEEP_DISTANCE: "Держит дистанцию",
+    LOW_HP: "Мало здоровья",
+    LOW_ENERGY: "Мало энергии",
+    SIEGE_ORDER: "Атакует улей",
+    PATROL: "Патрулирует",
+    HOLD_POSITION: "Держит позицию",
+    RESOURCE_SEARCH: "Ищет ресурсы",
+    CORPSE_SEARCH: "Ищет труп",
+    WAITING: "Ждёт",
+    MOVE_TO_POINT: "Идёт в точку",
+    RETURN_TO_HIVE: "Возвращается к улью",
+    HIVE_TARGET: "Идёт к улью",
+    ABILITY_UNAVAILABLE: "Способность недоступна"
+  }[reason] ?? reason;
 }
 
 function eventText(event: SimEvent, snapshot: Snapshot | null, genomes: GenomeSummary[]): string {
   const target = snapshot?.entities.find((entity) => entity.id === event.targetId);
   const targetGenome = target === undefined ? undefined : genomes.find((genome) => genome.genomeId === target.genomeId);
-  const targetName = targetGenome?.name ?? `#${event.targetId}`;
+  const targetName = targetGenome === undefined ? `#${event.targetId}` : displayGenomeName(targetGenome.name);
   switch (event.type) {
     case "SPAWN":
-      return `${genomes.find((genome) => genome.genomeId === event.value)?.name ?? "Creature"} spawned`;
+      return `${displayGenomeName(genomes.find((genome) => genome.genomeId === event.value)?.name ?? "Существо")} появилось`;
     case "ATTACK":
-      return `Attack on ${targetName}`;
+      return `Атака по ${targetName}`;
     case "HIT":
-      return `${targetName} takes ${event.value} damage`;
+      return `${targetName} получает ${event.value} урона`;
     case "MISS":
-      return `Attack missed ${targetName}`;
+      return `Промах по ${targetName}`;
     case "DEATH":
-      return `${targetName} destroyed`;
+      return `${targetName} уничтожен`;
     case "HEAL":
-      return `${targetName} healed ${event.value}`;
+      return `${targetName} восстановил ${event.value}`;
     case "OBJECTIVE":
-      return `Hive #${event.targetId} takes ${event.value} damage`;
+      return `Улей #${event.targetId} получает ${event.value} урона`;
     case "MATCH_END":
-      return event.text || "Match ended";
+      return event.text || "Бой окончен";
     default:
       return event.type;
   }

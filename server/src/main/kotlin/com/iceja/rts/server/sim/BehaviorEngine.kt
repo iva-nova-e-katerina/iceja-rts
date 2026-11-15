@@ -9,7 +9,8 @@ data class AiDecision(
     val moveTarget: Vec2?,
     val attackTargetId: Int,
     val attackHive: Boolean,
-    val fleeFrom: Vec2?
+    val fleeFrom: Vec2?,
+    val nodeId: String = ""
 )
 
 object BehaviorEngine {

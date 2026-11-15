@@ -110,7 +110,8 @@ class Simulation(
                 targetId = creature.attackTargetId,
                 genomeId = creature.genomeIndex,
                 mode = creature.aiMode,
-                reason = creature.aiReason
+                reason = creature.aiReason,
+                nodeId = creature.aiNodeId
             )
         }
         val projectileSnapshots = projectiles.map { projectile ->
@@ -210,7 +211,8 @@ class Simulation(
                     sourceId = creature.id,
                     x = x,
                     y = y,
-                    value = creature.genomeIndex
+                    value = creature.genomeIndex,
+                    text = unit.genome.name
                 )
                 entityId += 1
             }
@@ -240,16 +242,30 @@ class Simulation(
             val enemies = creatures.filter { it.ownerId != creature.ownerId }
             val ownHive = hiveFor(creature.ownerId)
             val enemyHive = enemyHiveFor(creature.ownerId)
-            val decision = BehaviorEngine.decide(
-                creature = creature,
-                friends = friends,
-                enemies = enemies,
-                ownHive = ownHive,
-                enemyHive = enemyHive,
-                tick = tick
-            )
+            val decision = if (creature.genome.behavior.graph == null) {
+                BehaviorEngine.decide(
+                    creature = creature,
+                    friends = friends,
+                    enemies = enemies,
+                    ownHive = ownHive,
+                    enemyHive = enemyHive,
+                    tick = tick
+                )
+            } else {
+                BehaviorGraphInterpreter.decide(
+                    graph = creature.genome.behavior.graph,
+                    creature = creature,
+                    friends = friends,
+                    enemies = enemies,
+                    ownHive = ownHive,
+                    enemyHive = enemyHive,
+                    tick = tick,
+                    random = aiRandom
+                )
+            }
             creature.aiMode = decision.mode
             creature.aiReason = decision.reason
+            creature.aiNodeId = decision.nodeId
             creature.targetId = decision.targetId
             creature.attackTargetId = decision.attackTargetId
             creature.attackHive = decision.attackHive
@@ -438,7 +454,15 @@ class Simulation(
                 val weapon = selectWeapon(creature, distance, hive.radiusMm) ?: return@forEach
                 creature.attackCooldownTicks = weapon.cooldownTicks
                 creature.energy = (creature.energy - 1).coerceAtLeast(0)
-                emit("ATTACK", creature.id, hive.id, creature.x, creature.y, weapon.damage)
+                emit(
+                    "ATTACK",
+                    creature.id,
+                    hive.id,
+                    creature.x,
+                    creature.y,
+                    weapon.damage,
+                    if (weapon.ranged) "RANGED:${weapon.partId}" else "MELEE:${weapon.partId}"
+                )
                 fireWeapon(creature, weapon, hive.id, hive.x, hive.y, hive.radiusMm, true)
             } else {
                 val target = creatureById(creature.attackTargetId) ?: return@forEach
@@ -446,7 +470,15 @@ class Simulation(
                 val weapon = selectWeapon(creature, distance, target.stats.radiusMm) ?: return@forEach
                 creature.attackCooldownTicks = weapon.cooldownTicks
                 creature.energy = (creature.energy - 1).coerceAtLeast(0)
-                emit("ATTACK", creature.id, target.id, creature.x, creature.y, weapon.damage)
+                emit(
+                    "ATTACK",
+                    creature.id,
+                    target.id,
+                    creature.x,
+                    creature.y,
+                    weapon.damage,
+                    if (weapon.ranged) "RANGED:${weapon.partId}" else "MELEE:${weapon.partId}"
+                )
                 fireWeapon(creature, weapon, target.id, target.x, target.y, target.stats.radiusMm, false)
             }
         }
@@ -489,13 +521,13 @@ class Simulation(
             )
             nextProjectileId += 1
             if (!hit) {
-                emit("MISS", source.id, targetId, targetX, targetY, 0)
+                emit("MISS", source.id, targetId, targetX, targetY, 0, weapon.partId)
             }
             return
         }
 
         if (!hit) {
-            emit("MISS", source.id, targetId, targetX, targetY, 0)
+            emit("MISS", source.id, targetId, targetX, targetY, 0, weapon.partId)
             return
         }
         if (targetIsHive) {
@@ -656,7 +688,7 @@ class Simulation(
         target.hp -= damage
         target.lastDamageTick = tick
         damageByPlayer[sourceOwner] = damageByPlayer[sourceOwner] + damage
-        emit("HIT", sourceId, target.id, target.x, target.y, damage)
+        emit("HIT", sourceId, target.id, target.x, target.y, damage, damageType.name)
         if (target.hp <= 0) {
             killCreature(target, sourceOwner, sourceId)
         }
@@ -695,7 +727,7 @@ class Simulation(
         val damage = (baseDamage * 100 / (effectiveArmor + 100)).coerceAtLeast(1)
         hive.hp -= damage
         damageByPlayer[sourceOwner] = damageByPlayer[sourceOwner] + damage
-        emit("OBJECTIVE", sourceId, hive.id, hive.x, hive.y, damage)
+        emit("OBJECTIVE", sourceId, hive.id, hive.x, hive.y, damage, damageType.name)
         if (hive.hp <= 0) {
             hive.hp = 0
             hive.alive = false
@@ -720,9 +752,18 @@ class Simulation(
         creatures.filter { it.alive }.forEach { creature ->
             val active = creature.statuses.filter { it.remainingTicks > 0 }
             active.forEach { effect ->
-                val damage = kotlin.math.max(1, effect.damagePerSecond / GameCatalog.ruleset.tickRate)
-                creature.hp -= damage
-                emit("HIT", effect.sourceId, creature.id, creature.x, creature.y, damage)
+                if (tick % GameCatalog.ruleset.tickRate == 0 && effect.damagePerSecond > 0) {
+                    creature.hp -= effect.damagePerSecond
+                    emit(
+                        "HIT",
+                        effect.sourceId,
+                        creature.id,
+                        creature.x,
+                        creature.y,
+                        effect.damagePerSecond,
+                        effect.type.name
+                    )
+                }
                 effect.remainingTicks -= 1
             }
             creature.statuses.removeAll { it.remainingTicks <= 0 }
@@ -739,7 +780,15 @@ class Simulation(
                 if (creature.starvationTicks > 300 && tick % 30 == 0) {
                     val damage = kotlin.math.max(1, creature.stats.maxHp / 100)
                     creature.hp -= damage
-                    emit("HIT", 0, creature.id, creature.x, creature.y, damage)
+                    emit(
+                        "HIT",
+                        0,
+                        creature.id,
+                        creature.x,
+                        creature.y,
+                        damage,
+                        "STARVATION"
+                    )
                     if (creature.hp <= 0) {
                         killCreature(creature, -1, 0)
                     }

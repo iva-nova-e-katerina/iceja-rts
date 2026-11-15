@@ -7,6 +7,8 @@ import com.iceja.rts.server.catalog.PartDefinition
 import com.iceja.rts.server.catalog.Ruleset
 import com.iceja.rts.server.genome.DerivedStats
 import com.iceja.rts.server.genome.Genome
+import com.iceja.rts.server.genome.BehaviorGraph
+import com.iceja.rts.server.genome.UpgradeStat
 import com.iceja.rts.server.genome.ValidationResult
 import com.iceja.rts.server.sim.MatchResult
 import com.iceja.rts.server.sim.SimEvent
@@ -36,6 +38,20 @@ data class TemplateView(
 )
 
 @Serializable
+data class UpgradeRuleView(
+    val stat: UpgradeStat,
+    val basePrice: Int,
+    val growthPercent: Int,
+    val maxLevel: Int
+)
+
+@Serializable
+data class PresetGraphView(
+    val presetId: String,
+    val graph: BehaviorGraph
+)
+
+@Serializable
 data class CatalogResponse(
     val catalogVersion: String,
     val ruleset: Ruleset,
@@ -43,7 +59,9 @@ data class CatalogResponse(
     val parts: List<PartDefinition>,
     val behaviorPresets: List<BehaviorPresetDefinition>,
     val maps: List<MapDefinition>,
-    val templates: List<TemplateView>
+    val templates: List<TemplateView>,
+    val upgrades: List<UpgradeRuleView>,
+    val behaviorGraphs: List<PresetGraphView>
 )
 
 @Serializable

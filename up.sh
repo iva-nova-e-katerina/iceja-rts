@@ -30,7 +30,7 @@ else
   fi
   if [[ "${needs_build}" -eq 1 ]]; then
     echo "building server…"
-    mvn -q -pl server -am package -DskipTests
+    timeout 300s mvn -q -pl server -am package -DskipTests -Dkotlin.compiler.execution.strategy=in-process
   fi
   echo "starting server on :${SERVER_PORT}…"
   (

@@ -37,6 +37,7 @@ object GenomeTemplates {
                 part("HEART", SocketType.CORE),
                 part("CLAWED", SocketType.LEFT, mirrored = true),
                 part("MANDIBLE", SocketType.FRONT),
+                part("FACET", SocketType.FRONT),
                 part("CHITIN", SocketType.TOP),
                 part("BONEPLATE", SocketType.TOP)
             ),
@@ -65,6 +66,7 @@ object GenomeTemplates {
                 part("HEART", SocketType.CORE),
                 part("SLUGFOOT", SocketType.UNDER),
                 part("CLAWED", SocketType.LEFT, mirrored = true),
+                part("FACET", SocketType.FRONT),
                 part("CHITIN", SocketType.TOP),
                 part("BONEPLATE", SocketType.TOP)
             ),
@@ -78,7 +80,8 @@ object GenomeTemplates {
                 part("GANGLION", SocketType.CORE),
                 part("HEART", SocketType.CORE),
                 part("SLUGFOOT", SocketType.UNDER),
-                part("MANDIBLE", SocketType.FRONT)
+                part("MANDIBLE", SocketType.FRONT),
+                part("FACET", SocketType.FRONT)
             ),
             behavior = BehaviorSpec(presetId = "BERSERK"),
             catalogVersion = GameCatalog.CATALOG_VERSION

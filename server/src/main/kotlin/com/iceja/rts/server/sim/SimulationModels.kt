@@ -96,6 +96,8 @@ class Creature(
     var lastDecisionTick: Int = 0
     var aiMode: String = "IDLE"
     var aiReason: String = "NO_TARGET"
+    var aiNodeId: String = ""
+    val behaviorCooldowns: MutableMap<String, Int> = mutableMapOf()
     var damageDealt: Long = 0
     var kills: Int = 0
     val statuses: MutableList<StatusEffect> = mutableListOf()
@@ -152,7 +154,8 @@ data class EntitySnapshot(
     val targetId: Int,
     val genomeId: Int,
     val mode: String,
-    val reason: String
+    val reason: String,
+    val nodeId: String
 )
 
 @Serializable

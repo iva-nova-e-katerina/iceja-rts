@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ensureSession, getCatalog } from "./api";
+import { unlockBattleAudio } from "./audio/battleAudio";
 import type { Catalog, CreatureView, GuestSession } from "./types";
 import LabScreen from "./features/lab/LabScreen";
 import ArmyScreen from "./features/army/ArmyScreen";
@@ -17,6 +18,24 @@ export default function App() {
   const [savedCreature, setSavedCreature] = useState<CreatureView | null>(null);
 
   useEffect(() => {
+    const unlock = () => unlockBattleAudio();
+    window.addEventListener("pointerdown", unlock, { once: true });
+    window.addEventListener("keydown", unlock, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (savedCreature === null) {
+      return;
+    }
+    const timer = window.setTimeout(() => setSavedCreature(null), 3000);
+    return () => window.clearTimeout(timer);
+  }, [savedCreature]);
+
+  useEffect(() => {
     let cancelled = false;
     Promise.all([ensureSession(), getCatalog()])
       .then(([sessionValue, catalogValue]) => {
@@ -27,7 +46,7 @@ export default function App() {
       })
       .catch((reason: unknown) => {
         if (!cancelled) {
-          setError(reason instanceof Error ? reason.message : "Cannot load client data");
+          setError(reason instanceof Error ? reason.message : "Не удалось загрузить данные игры");
         }
       });
     return () => {
@@ -41,7 +60,7 @@ export default function App() {
         <h1>ICEJA: Autonomy</h1>
         <p className="error-text">{error}</p>
         <button className="primary" onClick={() => window.location.reload()}>
-          Retry
+          Повторить
         </button>
       </main>
     );
@@ -51,7 +70,7 @@ export default function App() {
     return (
       <main className="app-loading">
         <div className="spinner" />
-        <p>Connecting to the autonomy lab…</p>
+        <p>Подключаемся к лаборатории…</p>
       </main>
     );
   }
@@ -65,20 +84,20 @@ export default function App() {
         </div>
         <nav className="tabs">
           <button className={tab === "lab" ? "tab active" : "tab"} onClick={() => setTab("lab")}>
-            Laboratory
+            Лаборатория
           </button>
           <button className={tab === "army" ? "tab active" : "tab"} onClick={() => setTab("army")}>
-            Army
+            Армия
           </button>
           <button
             className={tab === "battle" ? "tab active" : "tab"}
             onClick={() => setTab("battle")}
             disabled={activeMatchId === null}
           >
-            Battle
+            Бой
           </button>
           <button className={tab === "replays" ? "tab active" : "tab"} onClick={() => setTab("replays")}>
-            Replays
+            Реплеи
           </button>
         </nav>
         <div className="identity">
@@ -89,7 +108,7 @@ export default function App() {
 
       {savedCreature !== null && (
         <div className="toast" onClick={() => setSavedCreature(null)}>
-          Saved {savedCreature.genome.name} · {savedCreature.stats.costBm} BM
+          Сохранено: {savedCreature.genome.name} · {savedCreature.stats.costBm} BM
         </div>
       )}
 
@@ -100,6 +119,10 @@ export default function App() {
             onSaved={(creature) => {
               setSavedCreature(creature);
               setTab("army");
+            }}
+            onBattle={(matchId) => {
+              setActiveMatchId(matchId);
+              setTab("battle");
             }}
           />
         )}

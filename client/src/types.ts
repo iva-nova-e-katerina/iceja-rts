@@ -267,6 +267,18 @@ export interface ValidationResult {
   stats: DerivedStats;
 }
 
+export interface UpgradeRuleView {
+  stat: UpgradeStat;
+  basePrice: number;
+  growthPercent: number;
+  maxLevel: number;
+}
+
+export interface PresetGraphView {
+  presetId: string;
+  graph: BehaviorGraph;
+}
+
 export interface TemplateView {
   id: string;
   name: string;
@@ -282,6 +294,8 @@ export interface Catalog {
   behaviorPresets: BehaviorPresetDefinition[];
   maps: MapDefinition[];
   templates: TemplateView[];
+  upgrades: UpgradeRuleView[];
+  behaviorGraphs: PresetGraphView[];
 }
 
 export interface CreatureView {
@@ -346,6 +360,7 @@ export interface EntitySnapshot {
   genomeId: number;
   mode: string;
   reason: string;
+  nodeId: string;
 }
 
 export interface ProjectileSnapshot {

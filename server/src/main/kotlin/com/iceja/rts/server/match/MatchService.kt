@@ -3,8 +3,6 @@ package com.iceja.rts.server.match
 import com.iceja.rts.server.api.ArmyView
 import com.iceja.rts.server.api.CreateMatchRequest
 import com.iceja.rts.server.catalog.GameCatalog
-import com.iceja.rts.server.genome.GenomeAnalyzer
-import com.iceja.rts.server.genome.GenomeTemplates
 import com.iceja.rts.server.sim.ArmyPlacement
 import com.iceja.rts.server.sim.PlayerSetup
 import com.iceja.rts.server.sim.Simulation
@@ -54,6 +52,9 @@ class MatchService(
         val playerUnits = army.units.map { unit ->
             val creature = creatureRepository.find(unit.creatureId)
                 ?: throw IllegalArgumentException("Creature not found: ${unit.creatureId}")
+            require(GameCatalog.chassisById[creature.genome.chassisId]?.isStatic != true) {
+                "Static chassis is not allowed in duel"
+            }
             ArmyPlacement(
                 genome = creature.genome,
                 stats = creature.stats,
@@ -70,7 +71,7 @@ class MatchService(
         val map = GameCatalog.mapsById[request.mapId]
             ?: throw IllegalArgumentException("Unknown map: ${request.mapId}")
 
-        val botUnits = botArmy(playerUnits.size)
+        val botUnits = BotArmyBuilder().build(playerUnits)
         val matchId = UUID.randomUUID().toString()
         val seed = random.nextLong()
         val simulation = Simulation(
@@ -78,8 +79,8 @@ class MatchService(
             seed = seed,
             config = SimulationConfig(map = map),
             players = listOf(
-                PlayerSetup(playerId = 0, nickname = "Architect", units = playerUnits),
-                PlayerSetup(playerId = 1, nickname = "Brood Bot", units = botUnits)
+                PlayerSetup(playerId = 0, nickname = "Архитектор", units = playerUnits),
+                PlayerSetup(playerId = 1, nickname = "Бот-улей", units = botUnits)
             )
         )
         val session = MatchSession(
@@ -103,26 +104,5 @@ class MatchService(
             ?: throw IllegalArgumentException("Army not found")
         require(army.ownerId == ownerId) { "Army belongs to another player" }
         return armyRepository.toView(army)
-    }
-
-    private fun botArmy(playerUnitCount: Int): List<ArmyPlacement> {
-        val targetCount = playerUnitCount.coerceIn(1, 3)
-        val preferredNames = listOf("Brawler", "Spitter", "Scout")
-        return GenomeTemplates.all
-            .filter { it.name in preferredNames }
-            .take(targetCount)
-            .mapNotNull { genome ->
-                val analysis = GenomeAnalyzer.analyze(genome)
-                if (analysis.valid) {
-                    ArmyPlacement(genome = genome, stats = analysis.stats, x = 0, y = 0)
-                } else {
-                    null
-                }
-            }
-            .ifEmpty {
-                val fallback = GenomeTemplates.all.first()
-                val analysis = GenomeAnalyzer.analyze(fallback)
-                listOf(ArmyPlacement(fallback, analysis.stats, 0, 0))
-            }
     }
 }

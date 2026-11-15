@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { createArmy, createMatch, listArmies, listCreatures } from "../../api";
+import { unlockBattleAudio } from "../../audio/battleAudio";
 import type { ArmyUnitInput, ArmyView, Catalog, CreatureView, MapDefinition } from "../../types";
 
 interface ArmyScreenProps {
@@ -11,7 +12,7 @@ export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps)
   const [creatures, setCreatures] = useState<CreatureView[]>([]);
   const [armies, setArmies] = useState<ArmyView[]>([]);
   const [units, setUnits] = useState<ArmyUnitInput[]>([]);
-  const [armyName, setArmyName] = useState("My swarm");
+  const [armyName, setArmyName] = useState("Моя стая");
   const [mapId, setMapId] = useState(catalog.maps[0]?.id ?? "duel-arena");
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
@@ -36,7 +37,7 @@ export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps)
       })
       .catch((reason: unknown) => {
         if (!cancelled) {
-          setMessage(reason instanceof Error ? reason.message : "Cannot load army data");
+          setMessage(reason instanceof Error ? reason.message : "Не удалось загрузить армию");
         }
       })
       .finally(() => {
@@ -51,11 +52,11 @@ export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps)
 
   function addCreature(creature: CreatureView) {
     if (units.length >= catalog.ruleset.maxCreaturesPerArmy) {
-      setMessage("Army is full");
+      setMessage("В армии уже максимум существ");
       return;
     }
     if (totalCost + creature.stats.costBm > catalog.ruleset.armyBudgetBm) {
-      setMessage("Army budget exceeded");
+      setMessage("Бюджет армии превышен");
       return;
     }
     const position = defaultPosition(units.length, map);
@@ -80,8 +81,9 @@ export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps)
   }
 
   async function startBattle() {
+    unlockBattleAudio();
     if (units.length === 0) {
-      setMessage("Add at least one creature");
+      setMessage("Добавь хотя бы одно существо");
       return;
     }
     setStarting(true);
@@ -91,40 +93,41 @@ export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps)
       const match = await createMatch(army.id, mapId);
       onMatchCreated(match.id);
     } catch (reason: unknown) {
-      setMessage(reason instanceof Error ? reason.message : "Cannot start battle");
+      setMessage(reason instanceof Error ? reason.message : "Не удалось начать бой");
     } finally {
       setStarting(false);
     }
   }
 
   async function startSavedArmy(army: ArmyView) {
+    unlockBattleAudio();
     setStarting(true);
     setMessage(null);
     try {
       const match = await createMatch(army.id, mapId);
       onMatchCreated(match.id);
     } catch (reason: unknown) {
-      setMessage(reason instanceof Error ? reason.message : "Cannot start battle");
+      setMessage(reason instanceof Error ? reason.message : "Не удалось начать бой");
     } finally {
       setStarting(false);
     }
   }
 
   if (loading) {
-    return <div className="screen-loading">Loading collection…</div>;
+    return <div className="screen-loading">Загружаем коллекцию…</div>;
   }
 
   return (
     <div className="army-layout">
       <aside className="panel collection-panel">
         <div className="panel-header">
-          <h2>Collection</h2>
-          <span className="muted">{creatures.length} creatures</span>
+          <h2>Коллекция</h2>
+          <span className="muted">{creatures.length} существ</span>
         </div>
         {creatures.length === 0 && (
           <div className="empty-state">
-            <p>No saved creatures yet.</p>
-            <p className="muted">Build one in the Laboratory.</p>
+            <p>Пока нет сохранённых существ.</p>
+            <p className="muted">Собери существо в Лаборатории.</p>
           </div>
         )}
         <div className="creature-list">
@@ -137,13 +140,15 @@ export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps)
                 <div>
                   <strong>{creature.genome.name}</strong>
                   <span className="muted">
-                    {creature.genome.chassisId} · {creature.genome.behavior.presetId}
+                    {catalog.chassis.find((item) => item.id === creature.genome.chassisId)?.name ?? creature.genome.chassisId} ·{" "}
+                    {catalog.behaviorPresets.find((item) => item.id === creature.genome.behavior.presetId)?.name ??
+                      creature.genome.behavior.presetId}
                   </span>
                 </div>
                 <div className="creature-card-footer">
                   <span>{creature.stats.costBm} BM</span>
                   <button className="secondary" disabled={!canAdd} onClick={() => addCreature(creature)}>
-                    Add
+                    Добавить
                   </button>
                 </div>
               </div>
@@ -155,7 +160,7 @@ export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps)
       <section className="planner-panel">
         <div className="stage-header">
           <div>
-            <span className="eyebrow">Army planner</span>
+            <span className="eyebrow">План армии</span>
             <h2>{armyName}</h2>
           </div>
           <div className="stage-actions">
@@ -167,10 +172,10 @@ export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps)
               ))}
             </select>
             <button className="secondary" onClick={autoPlace} disabled={units.length === 0}>
-              Auto-place
+              Авто-расстановка
             </button>
             <button className="primary" onClick={() => void startBattle()} disabled={starting || units.length === 0}>
-              {starting ? "Starting…" : "Start battle"}
+              {starting ? "Запускаем…" : "В бой"}
             </button>
           </div>
         </div>
@@ -179,12 +184,15 @@ export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps)
           <ArmyMap map={map} units={units} creaturesById={creaturesById} />
           <div className="army-form">
             <label>
-              Army name
+              Название армии
               <input value={armyName} maxLength={32} onChange={(event) => setArmyName(event.target.value)} />
             </label>
+            <p className="muted small-text">
+              Противник подбирается под ваш бюджет и количество существ.
+            </p>
             <div className="budget-block">
               <div className="budget-header">
-                <span>Army budget</span>
+                <span>Бюджет армии</span>
                 <strong>
                   {totalCost} / {catalog.ruleset.armyBudgetBm} BM
                 </strong>
@@ -196,25 +204,25 @@ export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps)
                 />
               </div>
               <p className="muted">
-                {units.length} / {catalog.ruleset.maxCreaturesPerArmy} creatures
+                {units.length} / {catalog.ruleset.maxCreaturesPerArmy} существ
               </p>
             </div>
-            {message !== null && <p className="error-text">{message}</p>}
+            {message !== null && <div className="notice">{message}</div>}
             <div className="unit-list">
               {units.map((unit, index) => {
                 const creature = creaturesById.get(unit.creatureId);
                 return (
                   <div key={`${unit.creatureId}-${index}`} className="unit-row">
                     <span>
-                      {creature?.genome.name ?? "Unknown"} · {creature?.stats.costBm ?? 0} BM
+                      {creature?.genome.name ?? "Неизвестно"} · {creature?.stats.costBm ?? 0} BM
                     </span>
-                    <button className="icon-button" onClick={() => removeUnit(index)} title="Remove">
+                    <button className="icon-button" onClick={() => removeUnit(index)} title="Убрать">
                       ×
                     </button>
                   </div>
                 );
               })}
-              {units.length === 0 && <p className="muted">Add creatures from the collection.</p>}
+              {units.length === 0 && <p className="muted">Добавь существ из коллекции.</p>}
             </div>
           </div>
         </div>
@@ -222,21 +230,21 @@ export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps)
 
       <aside className="panel saved-panel">
         <div className="panel-header">
-          <h2>Saved armies</h2>
+          <h2>Сохранённые армии</h2>
           <span className="muted">{armies.length}</span>
         </div>
-        {armies.length === 0 && <p className="muted">No saved armies.</p>}
+        {armies.length === 0 && <p className="muted">Сохранённых армий пока нет.</p>}
         <div className="saved-list">
           {armies.map((army) => (
             <div key={army.id} className="saved-army">
               <div>
                 <strong>{army.name}</strong>
                 <span className="muted">
-                  {army.creatureCount} creatures · {army.totalCostBm} BM
+                  {army.creatureCount} существ · {army.totalCostBm} BM
                 </span>
               </div>
               <button className="secondary" disabled={starting} onClick={() => void startSavedArmy(army)}>
-                Fight
+                В бой
               </button>
             </div>
           ))}

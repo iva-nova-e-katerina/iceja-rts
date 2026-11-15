@@ -4,6 +4,8 @@ import com.iceja.rts.server.HealthResponse
 import com.iceja.rts.server.auth.TicketService
 import com.iceja.rts.server.catalog.GameCatalog
 import com.iceja.rts.server.genome.GenomeAnalyzer
+import com.iceja.rts.server.genome.PresetGraphs
+import com.iceja.rts.server.genome.UpgradeRules
 import com.iceja.rts.server.match.MatchService
 import com.iceja.rts.server.store.ArmyRepository
 import com.iceja.rts.server.store.CreatureRepository
@@ -62,7 +64,7 @@ fun Application.configureApi(
 
             post("/auth/guest") {
                 val playerId = "guest-${UUID.randomUUID()}"
-                val nickname = "Architect-${playerId.takeLast(4)}"
+                val nickname = "Архитектор-${playerId.takeLast(4)}"
                 guestNicknames[playerId] = nickname
                 call.respond(GuestSession(playerId, nickname))
             }
@@ -210,56 +212,31 @@ fun Application.configureApi(
             }
         }
 
-        webSocket("/ws/echo") {
-            send(Frame.Text("hello"))
-            for (frame in incoming) {
-                if (frame is Frame.Text) {
-                    send(Frame.Text(frame.readText()))
-                }
-            }
-        }
-
         webSocket("/ws/matches/{matchId}") {
             val matchId = call.parameters["matchId"]
             val ticket = call.request.queryParameters["ticket"]
-            System.err.println("WS attempt match=$matchId ticket=${ticket != null}")
-            val consumed = ticket != null && ticketService.consume(ticket)
-            System.err.println("WS ticket consumed=$consumed")
-            if (matchId == null || ticket == null || !consumed) {
+            if (matchId == null || ticket == null || !ticketService.consume(ticket)) {
                 close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Invalid ticket"))
                 return@webSocket
             }
             val session = matchService.findMatch(matchId)
-            System.err.println("WS session found=${session != null}")
             if (session == null) {
                 close(CloseReason(CloseReason.Codes.NORMAL, "Match not found"))
                 return@webSocket
             }
-            System.err.println("WS preparing start")
 
             val startMessage = try {
-                val encoded = apiJson.encodeToString(
+                apiJson.encodeToString(
                     WsMessage(
                         type = "match_start",
                         payload = apiJson.encodeToJsonElement(session.matchStartPayload())
                     )
                 )
-                System.err.println("WS start built length=${encoded.length}")
-                encoded
             } catch (exception: Throwable) {
-                exception.printStackTrace()
                 close(CloseReason(CloseReason.Codes.INTERNAL_ERROR, "Cannot build match start"))
                 return@webSocket
             }
-            try {
-                System.err.println("WS sending start")
-                send(Frame.Text(startMessage))
-                System.err.println("WS start sent")
-            } catch (exception: Throwable) {
-                exception.printStackTrace()
-                close(CloseReason(CloseReason.Codes.INTERNAL_ERROR, "Cannot send match start"))
-                return@webSocket
-            }
+            send(Frame.Text(startMessage))
 
             val subscription = session.subscribe()
             try {
@@ -297,9 +274,6 @@ fun Application.configureApi(
                     }
                 }
                 sender.cancel()
-            } catch (exception: Throwable) {
-                System.err.println("WS handler failed")
-                exception.printStackTrace()
             } finally {
                 session.unsubscribe(subscription)
             }
@@ -324,7 +298,21 @@ private fun catalogResponse(): CatalogResponse {
         parts = GameCatalog.parts,
         behaviorPresets = GameCatalog.behaviorPresets,
         maps = GameCatalog.maps,
-        templates = templates
+        templates = templates,
+        upgrades = UpgradeRules.all().map { rule ->
+            UpgradeRuleView(
+                stat = rule.stat,
+                basePrice = rule.basePrice,
+                growthPercent = rule.growthPercent,
+                maxLevel = rule.maxLevel
+            )
+        },
+        behaviorGraphs = PresetGraphs.all.map { preset ->
+            PresetGraphView(
+                presetId = preset.presetId,
+                graph = preset.graph
+            )
+        }
     )
 }
 

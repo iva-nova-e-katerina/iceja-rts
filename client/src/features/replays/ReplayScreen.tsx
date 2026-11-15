@@ -75,15 +75,15 @@ export default function ReplayScreen({ catalog }: ReplayScreenProps) {
     <div className="replay-layout">
       <aside className="panel replay-list-panel">
         <div className="panel-header">
-          <h2>Matches</h2>
+          <h2>Матчи</h2>
           <span className="muted">{matches.length}</span>
         </div>
-        {loading && <p className="muted">Loading history…</p>}
+        {loading && <p className="muted">Загружаем историю…</p>}
         {message !== null && <p className="error-text">{message}</p>}
         {!loading && matches.length === 0 && (
           <div className="empty-state">
-            <p>No matches yet.</p>
-            <p className="muted">Start a battle from the Army screen.</p>
+            <p>Матчей пока нет.</p>
+            <p className="muted">Запусти бой на вкладке «Армия».</p>
           </div>
         )}
         <div className="match-list">
@@ -94,12 +94,12 @@ export default function ReplayScreen({ catalog }: ReplayScreenProps) {
               onClick={() => void openReplay(match)}
             >
               <div>
-                <strong>{match.mapId}</strong>
+                <strong>{catalog.maps.find((item) => item.id === match.mapId)?.name ?? match.mapId}</strong>
                 <span className="muted">
-                  {match.status} · {new Date(match.createdAt).toLocaleString()}
+                  {statusLabel(match.status)} · {new Date(match.createdAt).toLocaleString()}
                 </span>
               </div>
-              <span className={`badge ${match.status === "FINISHED" ? "good" : "live"}`}>{match.status}</span>
+              <span className={`badge ${match.status === "FINISHED" ? "good" : "live"}`}>{statusLabel(match.status)}</span>
             </button>
           ))}
         </div>
@@ -108,16 +108,16 @@ export default function ReplayScreen({ catalog }: ReplayScreenProps) {
       <section className="replay-player">
         {replay === null && (
           <div className="empty-state large">
-            <h2>Replay browser</h2>
-            <p className="muted">Select a match to inspect deterministic snapshots and events.</p>
+            <h2>Просмотр реплеев</h2>
+            <p className="muted">Выбери матч, чтобы посмотреть кадры и события.</p>
           </div>
         )}
         {replay !== null && (
           <>
             <div className="replay-topbar">
               <div>
-                <span className="eyebrow">Replay</span>
-                <h2>{replay.mapId}</h2>
+                <span className="eyebrow">Реплей</span>
+                <h2>{catalog.maps.find((item) => item.id === replay.mapId)?.name ?? replay.mapId}</h2>
               </div>
               <div className="replay-timer">
                 {formatTime(snapshot?.tick ?? 0, catalog.ruleset.tickRate)} /{" "}
@@ -135,7 +135,7 @@ export default function ReplayScreen({ catalog }: ReplayScreenProps) {
             </div>
             <div className="replay-controls">
               <button className="primary" onClick={() => setPlaying((value) => !value)}>
-                {playing ? "Pause" : "Play"}
+                {playing ? "Пауза" : "Смотреть"}
               </button>
               <input
                 type="range"
@@ -163,29 +163,29 @@ export default function ReplayScreen({ catalog }: ReplayScreenProps) {
                   <span className="muted">#{snapshot?.tick ?? 0}</span>
                 </div>
                 <div className="replay-stats">
-                  <span>Entities {snapshot?.entities.length ?? 0}</span>
-                  <span>Projectiles {snapshot?.projectiles.length ?? 0}</span>
-                  <span>Checksum {snapshot?.checksum ?? 0}</span>
+                  <span>Существ {snapshot?.entities.length ?? 0}</span>
+                  <span>Снарядов {snapshot?.projectiles.length ?? 0}</span>
+                  <span>Контрольная сумма {snapshot?.checksum ?? 0}</span>
                 </div>
               </div>
               <div className="panel">
                 <div className="panel-header">
-                  <h3>Result</h3>
+                  <h3>Результат</h3>
                 </div>
-                {replay.result === null && <p className="muted">Match still running.</p>}
+                {replay.result === null && <p className="muted">Матч ещё идёт.</p>}
                 {replay.result !== null && (
                   <div className="replay-result">
                     <strong>
                       {replay.result.winner === -1
-                        ? "Draw"
-                        : `${replay.players[replay.result.winner]?.nickname ?? "Winner"} wins`}
+                        ? "Ничья"
+                        : `${replay.players[replay.result.winner]?.nickname ?? "Победитель"} победил`}
                     </strong>
-                    <span className="muted">{replay.result.reason}</span>
+                    <span className="muted">{resultReasonLabel(replay.result.reason)}</span>
                     {replay.result.stats.map((stats) => (
                       <div key={stats.playerId} className="replay-result-row">
                         <span>{stats.nickname}</span>
-                        <span>{stats.damageDealt} damage</span>
-                        <span>{stats.kills} kills</span>
+                        <span>{stats.damageDealt} урона</span>
+                        <span>{stats.kills} убийств</span>
                       </div>
                     ))}
                   </div>
@@ -197,6 +197,23 @@ export default function ReplayScreen({ catalog }: ReplayScreenProps) {
       </section>
     </div>
   );
+}
+
+function resultReasonLabel(reason: string): string {
+  return {
+    HIVE_DESTROYED: "Улей уничтожен",
+    ANNIHILATION: "Армия уничтожена",
+    TIMEOUT_HIVE_HP: "Время вышло: больше HP улья",
+    TIMEOUT_CREATURE_HP: "Время вышло: больше HP существ",
+    TIMEOUT_DAMAGE: "Время вышло: больше урона",
+    TIMEOUT_DRAW: "Время вышло: ничья",
+    SIMULTANEOUS_HIVE_DESTRUCTION: "Оба улья уничтожены",
+    TIMEOUT: "Время вышло"
+  }[reason] ?? reason;
+}
+
+function statusLabel(status: string): string {
+  return status === "FINISHED" ? "ЗАВЕРШЁН" : status === "LIVE" ? "ИДЁТ" : status;
 }
 
 function formatTime(tick: number, tickRate: number): string {

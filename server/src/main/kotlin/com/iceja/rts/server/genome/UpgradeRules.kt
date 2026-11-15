@@ -22,6 +22,8 @@ object UpgradeRules {
     fun rule(stat: UpgradeStat): UpgradeRule =
         rules[stat] ?: throw IllegalArgumentException("Unknown upgrade: $stat")
 
+    fun all(): List<UpgradeRule> = UpgradeStat.entries.map { rule(it) }
+
     fun levelOf(upgrades: List<UpgradePlacement>, stat: UpgradeStat): Int =
         upgrades.filter { it.stat == stat }.sumOf { it.level }
 

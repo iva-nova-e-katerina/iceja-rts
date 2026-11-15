@@ -188,7 +188,6 @@ export default function Battlefield({ map, snapshot, genomes, selectedId, onSele
         canvas.removeEventListener("wheel", onWheel);
         resizeObserver.disconnect();
       };
-      host.dataset.cleanup = "pending";
       (host as HTMLDivElement & { __cleanup?: () => void }).__cleanup = cleanup;
       setReady(true);
     };
@@ -199,7 +198,6 @@ export default function Battlefield({ map, snapshot, genomes, selectedId, onSele
       disposed = true;
       const cleanup = (host as HTMLDivElement & { __cleanup?: () => void }).__cleanup;
       cleanup?.();
-      setReady(false);
       appRef.current?.destroy(true, { children: true });
       appRef.current = null;
       worldRef.current = null;
@@ -243,7 +241,7 @@ export default function Battlefield({ map, snapshot, genomes, selectedId, onSele
 
     snapshot.entities.forEach((entity) => {
       const genome = genomesById.get(entity.genomeId);
-      const radius = Math.max(500, genome?.radiusMm ?? 500);
+      const radius = Math.max(1_200, genome?.radiusMm ?? 500);
       const baseColor = entity.owner === 0 ? 0x39e6b0 : 0xff8a4c;
       const stateColor =
         entity.state === 2 ? 0xff5c6c : entity.state === 1 ? 0x75e6d0 : baseColor;
