@@ -104,7 +104,9 @@ data class ArmyUnitInput(
 @Serializable
 data class CreateArmyRequest(
     val name: String,
-    val units: List<ArmyUnitInput>
+    val units: List<ArmyUnitInput>,
+    val hiveX: Int = 0,
+    val hiveY: Int = 0
 )
 
 @Serializable
@@ -122,7 +124,9 @@ data class ArmyView(
     val name: String,
     val units: List<ArmyUnitView>,
     val totalCostBm: Int,
-    val creatureCount: Int
+    val creatureCount: Int,
+    val hiveX: Int = 0,
+    val hiveY: Int = 0
 )
 
 @Serializable

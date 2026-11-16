@@ -70,12 +70,17 @@ class MatchService(
             "Army cost $armyCost BM exceeds ${GameCatalog.ruleset.armyBudgetBm} BM"
         }
 
-        val map = GameCatalog.mapsById[request.mapId]
+        val selectedMap = GameCatalog.mapsById[request.mapId]
             ?: throw IllegalArgumentException("Unknown map: ${request.mapId}")
+        val map = if (army.hiveX > 0 && army.hiveY > 0) {
+            selectedMap.copy(spawnA = com.iceja.rts.server.catalog.SpawnPoint(army.hiveX, army.hiveY))
+        } else {
+            selectedMap
+        }
 
-        val botUnits = BotArmyBuilder().build(playerUnits)
         val matchId = UUID.randomUUID().toString()
         val seed = random.nextLong()
+        val botUnits = BotArmyBuilder().build(playerUnits, seed)
         val simulation = Simulation(
             matchId = matchId,
             seed = seed,

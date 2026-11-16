@@ -158,7 +158,22 @@ fun Application.configureApi(
                     call.respond(HttpStatusCode.UnprocessableEntity, validationError)
                     return@post
                 }
-                val army = armyRepository.create(ownerId, request.name, request.units)
+                if (request.hiveX < 0 || request.hiveY < 0 ||
+                    request.hiveX > 192_000 || request.hiveY > 192_000
+                ) {
+                    call.respond(
+                        HttpStatusCode.UnprocessableEntity,
+                        error("ARMY_INVALID", "Hive position is outside the map")
+                    )
+                    return@post
+                }
+                val army = armyRepository.create(
+                    ownerId,
+                    request.name,
+                    request.units,
+                    hiveX = request.hiveX,
+                    hiveY = request.hiveY
+                )
                 call.respond(HttpStatusCode.Created, armyRepository.toView(army))
             }
             get("/armies") {

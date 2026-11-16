@@ -170,6 +170,7 @@ export class BattleAudio {
     const heal = events.find((event) => event.type === "HEAL");
     const spawn = events.find((event) => event.type === "SPAWN");
     const resource = events.find((event) => event.type === "RESOURCE");
+    const eat = events.find((event) => event.type === "EAT");
     const telepathy = events.find((event) => event.type === "TELEPATHY");
     const whip = events.find((event) => event.type === "WHIP");
     const hiveFound = events.find((event) => event.type === "HIVE_FOUND");
@@ -178,6 +179,9 @@ export class BattleAudio {
 
     if (spawn !== undefined && this.canPlay("spawn", 220)) {
       this.playSpawn(panFor(spawn));
+    }
+    if (eat !== undefined && this.canPlay("eat-start", 350)) {
+      this.playFeast(panFor(eat));
     }
     if (resource !== undefined && this.canPlay("resource", 180)) {
       this.playEat(panFor(resource));
@@ -424,6 +428,18 @@ export class BattleAudio {
     this.noise(0.3, 0.035, "bandpass", 2600, pan, 0.15);
   }
 
+  private playFeast(pan: number) {
+    for (let bite = 0; bite < 6; bite += 1) {
+      const delay = bite * 0.2;
+      const variation = 0.88 + Math.random() * 0.24;
+      const bitePan = Math.max(-0.8, Math.min(0.8, pan + (Math.random() * 0.16 - 0.08)));
+      this.noise(0.24, 0.15, "bandpass", 560 * variation, bitePan, 0.09, delay);
+      this.noise(0.08, 0.085, "highpass", 2800 * variation, bitePan, 0.04, delay + 0.01);
+      this.tone("sine", 185 * variation, 62, 0.28, 0.13, delay, bitePan, 0.06);
+      this.tone("triangle", 310 * variation, 105, 0.16, 0.055, delay + 0.04, bitePan, 0.04);
+    }
+  }
+
   private playEat(pan: number) {
     this.noise(0.16, 0.11, "bandpass", 780, pan, 0.06);
     this.noise(0.1, 0.06, "lowpass", 320, pan, 0.04);
@@ -511,7 +527,8 @@ export class BattleAudio {
     filterType: NoiseFilter,
     frequency: number,
     pan = 0,
-    reverbSend = 0
+    reverbSend = 0,
+    delaySeconds = 0
   ) {
     const context = this.ensureContext();
     const master = this.master;
@@ -531,7 +548,7 @@ export class BattleAudio {
     filter.type = filterType;
     filter.frequency.value = frequency;
     filter.Q.value = filterType === "bandpass" ? 1.4 : 0.7;
-    const now = context.currentTime;
+    const now = context.currentTime + delaySeconds;
     gain.gain.setValueAtTime(0.0001, now);
     gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume), now + 0.006);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);

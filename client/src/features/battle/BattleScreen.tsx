@@ -584,7 +584,7 @@ function formatTime(tick: number, tickRate: number): string {
 }
 
 function stateLabel(state: number): string {
-  return ["Стоит", "Идёт", "Атакует", "Собирает", "Убегает", "Оглушено", "В норе", "Мёртво"][state] ?? "Неизвестно";
+  return ["Стоит", "Идёт", "Атакует", "Ест труп", "Убегает", "Оглушено", "В норе", "Мёртво"][state] ?? "Неизвестно";
 }
 
 function modeLabel(mode: string): string {
@@ -647,6 +647,7 @@ function reasonLabel(reason: string): string {
     HOLD_POSITION: "Держит позицию",
     RESOURCE_SEARCH: "Ищет ресурсы",
     CORPSE_SEARCH: "Ищет труп",
+    EATING: "Поедает труп",
     WAITING: "Ждёт",
     MOVE_TO_POINT: "Идёт в точку",
     RETURN_TO_HIVE: "Возвращается к улью",
@@ -687,6 +688,8 @@ function eventText(event: SimEvent, snapshot: Snapshot | null, genomes: GenomeSu
       return `${targetName} уничтожен`;
     case "HEAL":
       return `${targetName} восстановил ${event.value}`;
+    case "EAT":
+      return "Поедает труп";
     case "RESOURCE":
       return event.text === "CORPSE" ? `Труп съеден (+${event.value} энергии)` : "Сбор ресурса";
     case "OBJECTIVE":

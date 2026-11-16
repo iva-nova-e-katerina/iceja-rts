@@ -46,7 +46,9 @@ data class ArmyRecord(
     val ownerId: String,
     val name: String,
     val units: List<ArmyUnitRecord>,
-    val createdAt: Long
+    val createdAt: Long,
+    val hiveX: Int = 0,
+    val hiveY: Int = 0
 ) {
     fun toView(creatureRepository: CreatureRepository): ArmyView {
         val views = units.mapNotNull { unit ->
@@ -65,7 +67,9 @@ data class ArmyRecord(
             name = name,
             units = views,
             totalCostBm = views.sumOf { it.costBm },
-            creatureCount = views.size
+            creatureCount = views.size,
+            hiveX = hiveX,
+            hiveY = hiveY
         )
     }
 }
@@ -125,13 +129,21 @@ class ArmyRepository(
 ) {
     private val armies = ConcurrentHashMap<String, ArmyRecord>()
 
-    fun create(ownerId: String, name: String, units: List<ArmyUnitInput>): ArmyRecord {
+    fun create(
+        ownerId: String,
+        name: String,
+        units: List<ArmyUnitInput>,
+        hiveX: Int = 0,
+        hiveY: Int = 0
+    ): ArmyRecord {
         val record = ArmyRecord(
             id = UUID.randomUUID().toString(),
             ownerId = ownerId,
             name = name,
             units = units.map { ArmyUnitRecord(it.creatureId, it.x, it.y) },
-            createdAt = Instant.now().toEpochMilli()
+            createdAt = Instant.now().toEpochMilli(),
+            hiveX = hiveX,
+            hiveY = hiveY
         )
         armies[record.id] = record
         return record

@@ -386,6 +386,28 @@ class Simulation(
             val friends = creatures.filter { it.ownerId == creature.ownerId }
             val enemies = creatures.filter { it.ownerId != creature.ownerId }
             val visibleEnemies = enemies.filter { enemy -> Vision.canSee(creature, enemy, navigation) }
+            val recentlyHit = tick - creature.lastDamageTick <= GameCatalog.ruleset.tickRate * 3
+            val lockedCorpse = corpseById(creature.scavengeTargetId)
+            if (lockedCorpse != null) {
+                if (
+                    visibleEnemies.isEmpty() &&
+                    !recentlyHit &&
+                    creature.hp < creature.stats.maxHp
+                ) {
+                    creature.aiMode = "SCAVENGE"
+                    creature.aiReason = "EATING"
+                    creature.aiNodeId = "corpse:eating"
+                    creature.targetId = lockedCorpse.id
+                    creature.attackTargetId = 0
+                    creature.attackHive = false
+                    creature.desiredX = lockedCorpse.x
+                    creature.desiredY = lockedCorpse.y
+                    creature.lastDecisionTick = tick
+                    return@forEach
+                }
+                creature.scavengeTargetId = 0
+                creature.scavengeTicks = 0
+            }
             val scout = isScout(creature)
             val outnumbered = scout && visibleEnemies.size > 1
             val ownerIndex = creature.ownerId.coerceIn(0, 1)
@@ -526,7 +548,15 @@ class Simulation(
             } else {
                 null
             }
-            val effectiveDecision = standDecision ?: healDecision ?: damageDecision ?: calledDecision
+            val eatingDecision = if (
+                decision.mode == "SCAVENGE" &&
+                decision.scavengeTargetId != 0
+            ) {
+                decision
+            } else {
+                null
+            }
+            val effectiveDecision = standDecision ?: eatingDecision ?: healDecision ?: damageDecision ?: calledDecision
             val assaultDecision = if (
                 enemyHiveKnown[ownerIndex] &&
                 !scout &&
@@ -605,7 +635,14 @@ class Simulation(
             creature.targetId = finalDecision.targetId
             creature.attackTargetId = finalDecision.attackTargetId
             creature.attackHive = finalDecision.attackHive
-            creature.scavengeTargetId = finalDecision.scavengeTargetId
+            creature.scavengeTargetId = if (
+                visibleEnemies.isEmpty() &&
+                !recentlyHit
+            ) {
+                finalDecision.scavengeTargetId
+            } else {
+                0
+            }
             finalDecision.moveTarget?.let { target ->
                 creature.desiredX = target.x.coerceIn(1_000, mapWidth - 1_000)
                 creature.desiredY = target.y.coerceIn(1_000, mapHeight - 1_000)
@@ -951,9 +988,20 @@ class Simulation(
     private fun updateScavenging() {
         creatures.filter { it.alive && it.scavengeTargetId != 0 }.forEach { creature ->
             val corpse = corpseById(creature.scavengeTargetId)
-            if (corpse == null || !creature.stats.flags.contains(PartFlag.SCAVENGER)) {
+            if (corpse == null) {
                 creature.scavengeTargetId = 0
                 creature.scavengeTicks = 0
+                return@forEach
+            }
+            val threatened = creature.hp >= creature.stats.maxHp ||
+                tick - creature.lastDamageTick <= GameCatalog.ruleset.tickRate * 3 ||
+                creatures.any { other ->
+                    other.ownerId != creature.ownerId && Vision.canSee(creature, other, navigation)
+                }
+            if (threatened) {
+                creature.scavengeTargetId = 0
+                creature.scavengeTicks = 0
+                creature.state = EntityState.IDLE
                 return@forEach
             }
             if (!isInScavengeRange(creature, corpse)) {
@@ -961,6 +1009,9 @@ class Simulation(
                 return@forEach
             }
             creature.state = EntityState.HARVESTING
+            if (creature.scavengeTicks == 0) {
+                emit("EAT", creature.id, corpse.id, corpse.x, corpse.y, 0, "CORPSE")
+            }
             creature.scavengeTicks += 1
             if (creature.scavengeTicks >= GameCatalog.ruleset.tickRate * 2) {
                 val energyGain = kotlin.math.min(corpse.nutritionEnergy, creature.stats.maxEnergy - creature.energy)

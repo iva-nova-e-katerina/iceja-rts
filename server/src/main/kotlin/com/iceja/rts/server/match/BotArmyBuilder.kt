@@ -5,6 +5,7 @@ import com.iceja.rts.server.genome.Genome
 import com.iceja.rts.server.genome.GenomeAnalyzer
 import com.iceja.rts.server.genome.GenomeTemplates
 import com.iceja.rts.server.sim.ArmyPlacement
+import kotlin.random.Random
 
 class BotArmyBuilder {
     private data class Candidate(
@@ -12,20 +13,7 @@ class BotArmyBuilder {
         val stats: com.iceja.rts.server.genome.DerivedStats
     )
 
-    private val preferredNames = listOf(
-        "Brawler",
-        "Spitter",
-        "Scout",
-        "Tank",
-        "Swarm",
-        "Healer",
-        "Burrower",
-        "Flyer",
-        "Artillery",
-        "Harvester"
-    )
-
-    fun build(playerUnits: List<ArmyPlacement>): List<ArmyPlacement> {
+    fun build(playerUnits: List<ArmyPlacement>, seed: Long = 0L): List<ArmyPlacement> {
         if (playerUnits.isEmpty()) {
             return emptyList()
         }
@@ -44,19 +32,19 @@ class BotArmyBuilder {
         val cheapestCost = candidates.first().stats.costBm
         val maxCountByBudget = (playerBudget / cheapestCost).coerceAtLeast(1)
         val targetCount = minOf(playerCount, maxCountByBudget, GameCatalog.ruleset.maxCreaturesPerArmy)
+        val random = Random(seed)
         var remainingBudget = playerBudget
         val chosen = mutableListOf<Candidate>()
 
         for (index in 0 until targetCount) {
             val slotsLeft = targetCount - index - 1
             val maxAffordable = remainingBudget - cheapestCost * slotsLeft
-            val preferredName = preferredNames[index % preferredNames.size]
-            val preferred = candidates.firstOrNull {
-                it.genome.name == preferredName && it.stats.costBm <= maxAffordable
+            val affordable = candidates.filter { it.stats.costBm <= maxAffordable }
+            val pick = if (affordable.isEmpty()) {
+                candidates.first()
+            } else {
+                affordable[random.nextInt(affordable.size)]
             }
-            val pick = preferred
-                ?: candidates.filter { it.stats.costBm <= maxAffordable }.maxByOrNull { it.stats.costBm }
-                ?: candidates.first()
             chosen += pick
             remainingBudget -= pick.stats.costBm
         }

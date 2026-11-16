@@ -108,10 +108,23 @@ export async function listCreatures(): Promise<CreatureView[]> {
   return request<CreatureView[]>("/api/v1/creatures");
 }
 
-export async function createArmy(name: string, units: ArmyUnitInput[]): Promise<ArmyView> {
+export async function createArmy(
+  name: string,
+  units: ArmyUnitInput[],
+  hive?: { x: number; y: number }
+): Promise<ArmyView> {
   return request<ArmyView>("/api/v1/armies", {
     method: "POST",
-    body: JSON.stringify({ name, units })
+    body: JSON.stringify({
+      name,
+      units: units.map((unit) => ({
+        ...unit,
+        x: Math.round(unit.x),
+        y: Math.round(unit.y)
+      })),
+      hiveX: Math.round(hive?.x ?? 0),
+      hiveY: Math.round(hive?.y ?? 0)
+    })
   });
 }
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getLanguage, installDocumentLocalization, setLanguage, type Language } from "./i18n";
 import { ensureSession, getCatalog } from "./api";
 import { unlockBattleAudio } from "./audio/battleAudio";
 import type { Catalog, CreatureView, GuestSession } from "./types";
@@ -16,6 +17,11 @@ export default function App() {
   const [activeMatchId, setActiveMatchId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savedCreature, setSavedCreature] = useState<CreatureView | null>(null);
+  const [language, setLanguageState] = useState<Language>(() => getLanguage());
+
+  useEffect(() => {
+    return installDocumentLocalization();
+  }, [language]);
 
   useEffect(() => {
     const unlock = () => unlockBattleAudio();
@@ -100,6 +106,26 @@ export default function App() {
             Реплеи
           </button>
         </nav>
+        <div className="language-switch" aria-label="Language">
+          <button
+            className={language === "ru" ? "active" : ""}
+            onClick={() => {
+              setLanguage("ru");
+              setLanguageState("ru");
+            }}
+          >
+            RU
+          </button>
+          <button
+            className={language === "en" ? "active" : ""}
+            onClick={() => {
+              setLanguage("en");
+              setLanguageState("en");
+            }}
+          >
+            EN
+          </button>
+        </div>
         <div className="identity">
           <span className="dot online" />
           {session.nickname}
@@ -118,7 +144,6 @@ export default function App() {
             catalog={catalog}
             onSaved={(creature) => {
               setSavedCreature(creature);
-              setTab("army");
             }}
             onBattle={(matchId) => {
               setActiveMatchId(matchId);

@@ -229,6 +229,7 @@ export interface PartPlacement {
   offset: Offset;
   rotation: number;
   mirrored: boolean;
+  slotIndex?: number | null;
 }
 
 export interface UpgradePlacement {
@@ -394,6 +395,8 @@ export interface ArmyView {
   units: ArmyUnitView[];
   totalCostBm: number;
   creatureCount: number;
+  hiveX: number;
+  hiveY: number;
 }
 
 export interface MatchPlayerView {

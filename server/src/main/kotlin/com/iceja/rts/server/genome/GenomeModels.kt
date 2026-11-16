@@ -18,7 +18,8 @@ data class PartPlacement(
     val socketId: SocketType,
     val offset: Offset = Offset(),
     val rotation: Int = 0,
-    val mirrored: Boolean = false
+    val mirrored: Boolean = false,
+    val slotIndex: Int? = null
 )
 
 @Serializable

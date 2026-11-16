@@ -1,7 +1,6 @@
 package com.iceja.rts.server.sim
 
 import com.iceja.rts.server.catalog.GameCatalog
-import com.iceja.rts.server.catalog.PartFlag
 import com.iceja.rts.server.genome.BehaviorGraph
 import com.iceja.rts.server.genome.BehaviorNode
 
@@ -477,9 +476,6 @@ object BehaviorGraphInterpreter {
             )
 
         private fun eatCorpseDecision(node: BehaviorNode): NodeResult {
-            if (!creature.stats.flags.contains(PartFlag.SCAVENGER)) {
-                return NodeResult(false)
-            }
             val corpse = blackboard.nearestCorpse ?: return NodeResult(false)
             return NodeResult(
                 true,

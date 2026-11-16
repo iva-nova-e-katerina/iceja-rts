@@ -48,6 +48,29 @@ object BehaviorEngine {
             return holdDecision(ownHive, "NO_SENSORS")
         }
 
+        val recentlyHit = tick - creature.lastDamageTick <= GameCatalog.ruleset.tickRate * 3
+        val corpse = nearestCorpse(
+            creature,
+            corpses,
+            if (preset.id == "SCAVENGER") kotlin.math.max(20_000, visionRange) else 10_000
+        )
+        if (corpse != null &&
+            target == null &&
+            !recentlyHit &&
+            hpPercent < 100
+        ) {
+            return AiDecision(
+                mode = "SCAVENGE",
+                reason = "CORPSE_NEARBY",
+                targetId = corpse.id,
+                moveTarget = Vec2(corpse.x, corpse.y),
+                attackTargetId = 0,
+                attackHive = false,
+                fleeFrom = null,
+                scavengeTargetId = corpse.id
+            )
+        }
+
         if (hpPercent <= surviveThreshold && preset.caution >= 30) {
             return retreatDecision(creature, preset, ownHive, nearestFriend, target, "LOW_HP")
         }
@@ -75,22 +98,6 @@ object BehaviorEngine {
                 attackHive = false,
                 fleeFrom = null
             )
-        }
-
-        if (preset.id == "SCAVENGER" && creature.stats.flags.contains(PartFlag.SCAVENGER)) {
-            val corpse = nearestCorpse(creature, corpses)
-            if (corpse != null) {
-                return AiDecision(
-                    mode = "SCAVENGE",
-                    reason = "CORPSE_NEARBY",
-                    targetId = corpse.id,
-                    moveTarget = Vec2(corpse.x, corpse.y),
-                    attackTargetId = 0,
-                    attackHive = false,
-                    fleeFrom = null,
-                    scavengeTargetId = corpse.id
-                )
-            }
         }
 
         if (preset.id == "SIEGE" && enemyHiveVisible) {
@@ -363,8 +370,7 @@ object BehaviorEngine {
         fleeFrom = null
     )
 
-    private fun nearestCorpse(creature: Creature, corpses: List<Corpse>): Corpse? {
-        val searchRadius = kotlin.math.max(20_000, creature.stats.visionRangeMm)
+    private fun nearestCorpse(creature: Creature, corpses: List<Corpse>, searchRadius: Int): Corpse? {
         return corpses
             .asSequence()
             .map { corpse ->

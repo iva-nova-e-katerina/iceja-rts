@@ -38,6 +38,7 @@ interface EntityVisual {
   simpleRoot: Container;
   selectionRing: Graphics;
   attackRing: Graphics;
+  feedingRing: Graphics;
   hpFill: Graphics;
   bodyRadius: number;
   ownerColor: number;
@@ -179,6 +180,11 @@ export default function Battlefield({
             }
             visual.bodyRoot.visible = detailed;
             visual.simpleRoot.visible = !detailed;
+            if (visual.feedingRing.visible) {
+              const pulse = 0.92 + Math.sin(performance.now() * 0.012 + entity.id) * 0.1;
+              visual.feedingRing.scale.set(pulse);
+              visual.feedingRing.alpha = 0.55 + Math.sin(performance.now() * 0.01) * 0.2;
+            }
           });
         }
         app.renderer.render(app.stage);
@@ -420,7 +426,7 @@ export default function Battlefield({
         corpseVisuals.set(corpse.id, visual);
       }
       visual.position.set(corpse.x, corpse.y);
-      visual.alpha = Math.max(0.25, Math.min(1, corpse.remainingTicks / 900));
+      visual.alpha = Math.max(0.25, Math.min(1, corpse.remainingTicks / 4_500));
       seenCorpseIds.add(corpse.id);
     });
     for (const [corpseId, visual] of corpseVisuals) {
@@ -483,6 +489,7 @@ export default function Battlefield({
       }
       visual.selectionRing.visible = entity.id === selectedId;
       visual.attackRing.visible = entity.state === 2;
+      visual.feedingRing.visible = entity.state === 3;
       const hpPercent = entity.maxHp === 0 ? 0 : entity.hp / entity.maxHp;
       const bodyRadius = visual.bodyRadius;
       visual.hpFill
@@ -745,18 +752,24 @@ function createEntityVisual(entity: EntitySnapshot, render: CreatureRenderView):
     .stroke({ width: bodyRadius * 0.06, color: 0xff5c6c, alpha: 0.9 });
   attackRing.visible = false;
 
+  const feedingRing = new Graphics()
+    .circle(0, 0, bodyRadius * 1.32)
+    .stroke({ width: bodyRadius * 0.11, color: 0x9cff6a, alpha: 0.8 });
+  feedingRing.visible = false;
+
   const hpBar = new Graphics()
     .rect(-bodyRadius * 0.95, -bodyRadius * 1.5, bodyRadius * 1.9, bodyRadius * 0.3)
     .fill(0x071012);
   const hpFill = new Graphics();
 
-  root.addChild(simpleRoot, bodyRoot, selectionRing, attackRing, hpBar, hpFill);
+  root.addChild(simpleRoot, bodyRoot, selectionRing, attackRing, feedingRing, hpBar, hpFill);
   return {
     root,
     bodyRoot,
     simpleRoot,
     selectionRing,
     attackRing,
+    feedingRing,
     hpFill,
     bodyRadius,
     ownerColor
@@ -1249,6 +1262,9 @@ function drawBatchedCreatures(
     }
     if (entity.state === 2) {
       rings.circle(entity.x, entity.y, radius * 1.42).stroke({ width: radius * 0.06, color: 0xff5c6c, alpha: 0.9 });
+    }
+    if (entity.state === 3) {
+      rings.circle(entity.x, entity.y, radius * 1.32).stroke({ width: radius * 0.11, color: 0x9cff6a, alpha: 0.8 });
     }
   });
 

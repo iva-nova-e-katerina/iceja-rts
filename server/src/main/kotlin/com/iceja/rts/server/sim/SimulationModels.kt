@@ -126,7 +126,7 @@ class Corpse(
     val genomeIndex: Int,
     val x: Int,
     val y: Int,
-    var remainingTicks: Int = 900,
+    var remainingTicks: Int = 4_500,
     val nutritionEnergy: Int = 60,
     val nutritionHp: Int = 20
 )

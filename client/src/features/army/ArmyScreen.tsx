@@ -16,6 +16,12 @@ export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps)
   const [units, setUnits] = useState<ArmyUnitInput[]>([]);
   const [armyName, setArmyName] = useState("Моя стая");
   const [mapId, setMapId] = useState(catalog.maps[0]?.id ?? "duel-arena");
+  const [hivePosition, setHivePosition] = useState(() => {
+    const initialMap = catalog.maps.find((item) => item.id === mapId) ?? catalog.maps[0];
+    return initialMap === undefined
+      ? { x: 28_000, y: 96_000 }
+      : { x: initialMap.spawnA.x, y: initialMap.spawnA.y };
+  });
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
   const [addingTemplateId, setAddingTemplateId] = useState<string | null>(null);
@@ -30,6 +36,13 @@ export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps)
   const map = catalog.maps.find((item) => item.id === mapId) ?? catalog.maps[0];
   const totalCost = units.reduce((sum, unit) => sum + (creaturesById.get(unit.creatureId)?.stats.costBm ?? 0), 0);
   const budgetPercent = Math.min(100, (totalCost / catalog.ruleset.armyBudgetBm) * 100);
+
+  useEffect(() => {
+    const selected = catalog.maps.find((item) => item.id === mapId) ?? catalog.maps[0];
+    if (selected !== undefined) {
+      setHivePosition({ x: selected.spawnA.x, y: selected.spawnA.y });
+    }
+  }, [mapId, catalog.maps]);
 
   useEffect(() => {
     let cancelled = false;
@@ -71,7 +84,7 @@ export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps)
       setMessage(problem);
       return;
     }
-    const position = defaultPosition(units.length, map);
+    const position = defaultPosition(units.length, map, hivePosition);
     setUnits((current) => [
       ...current,
       { creatureId: creature.id, x: position.x, y: position.y }
@@ -105,6 +118,23 @@ export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps)
     }
   }
 
+  function moveHive(position: { x: number; y: number }) {
+    const next = {
+      x: Math.round(position.x),
+      y: Math.round(position.y)
+    };
+    const deltaX = next.x - hivePosition.x;
+    const deltaY = next.y - hivePosition.y;
+    setHivePosition(next);
+    setUnits((current) =>
+      current.map((unit) => ({
+        ...unit,
+        x: Math.round(Math.max(1_000, Math.min(map.widthMm - 1_000, unit.x + deltaX))),
+        y: Math.round(Math.max(1_000, Math.min(map.heightMm - 1_000, unit.y + deltaY)))
+      }))
+    );
+  }
+
   function removeUnit(index: number) {
     setUnits((current) => current.filter((_, unitIndex) => unitIndex !== index));
   }
@@ -112,7 +142,7 @@ export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps)
   function autoPlace() {
     setUnits((current) =>
       current.map((unit, index) => {
-        const position = defaultPosition(index, map);
+        const position = defaultPosition(index, map, hivePosition);
         return { ...unit, x: position.x, y: position.y };
       })
     );
@@ -127,7 +157,7 @@ export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps)
     setStarting(true);
     setMessage(null);
     try {
-      const army = await createArmy(armyName, units);
+      const army = await createArmy(armyName, units, hivePosition);
       const match = await createMatch(army.id, mapId);
       onMatchCreated(match.id);
     } catch (reason: unknown) {
@@ -252,7 +282,13 @@ export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps)
         </div>
 
         <div className="army-builder-grid">
-          <ArmyMap map={map} units={units} creaturesById={creaturesById} />
+          <ArmyMap
+            map={map}
+            units={units}
+            creaturesById={creaturesById}
+            hivePosition={hivePosition}
+            onHivePositionChange={moveHive}
+          />
           <div className="army-form">
             <label>
               Название армии
@@ -328,15 +364,39 @@ export default function ArmyScreen({ catalog, onMatchCreated }: ArmyScreenProps)
 function ArmyMap({
   map,
   units,
-  creaturesById
+  creaturesById,
+  hivePosition,
+  onHivePositionChange
 }: {
   map: MapDefinition;
   units: ArmyUnitInput[];
   creaturesById: Map<string, CreatureView>;
+  hivePosition: { x: number; y: number };
+  onHivePositionChange: (position: { x: number; y: number }) => void;
 }) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [draggingHive, setDraggingHive] = useState(false);
+
+  function pointerToMap(event: React.PointerEvent<SVGCircleElement>): { x: number; y: number } {
+    const svg = svgRef.current;
+    if (svg === null) {
+      return hivePosition;
+    }
+    const rect = svg.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      return hivePosition;
+    }
+    return {
+      x: Math.round(Math.max(1_000, Math.min(map.widthMm - 1_000, ((event.clientX - rect.left) / rect.width) * map.widthMm))),
+      y: Math.round(Math.max(1_000, Math.min(map.heightMm - 1_000, ((event.clientY - rect.top) / rect.height) * map.heightMm)))
+    };
+  }
+
   return (
     <div className="army-map-wrap">
+      <div className="army-map-hint">Перетащи свой зелёный улей, чтобы изменить точку спавна.</div>
       <svg
+        ref={svgRef}
         className="army-map"
         viewBox={`0 0 ${map.widthMm} ${map.heightMm}`}
         role="img"
@@ -403,8 +463,8 @@ function ArmyMap({
           />
         ))}
         <rect
-          x={map.spawnA.x - map.deployRadiusMm}
-          y={map.spawnA.y - map.deployRadiusMm}
+          x={hivePosition.x - map.deployRadiusMm}
+          y={hivePosition.y - map.deployRadiusMm}
           width={map.deployRadiusMm * 2}
           height={map.deployRadiusMm * 2}
           fill="rgba(57, 230, 176, 0.08)"
@@ -412,12 +472,40 @@ function ArmyMap({
           strokeWidth="600"
           strokeDasharray="3000 1800"
         />
-        <circle cx={map.spawnA.x} cy={map.spawnA.y} r={4000} fill="#12362f" stroke="#39e6b0" strokeWidth="700" />
+        <circle
+          cx={hivePosition.x}
+          cy={hivePosition.y}
+          r={4000}
+          fill="#12362f"
+          stroke="#39e6b0"
+          strokeWidth="700"
+          className="army-hive-draggable"
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.currentTarget.setPointerCapture(event.pointerId);
+            setDraggingHive(true);
+          }}
+          onPointerMove={(event) => {
+            if (!draggingHive) {
+              return;
+            }
+            onHivePositionChange(pointerToMap(event));
+          }}
+          onPointerUp={(event) => {
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+              event.currentTarget.releasePointerCapture(event.pointerId);
+            }
+            setDraggingHive(false);
+          }}
+          onPointerCancel={() => setDraggingHive(false)}
+        >
+          <title>Свой улей — перетащи, чтобы изменить точку спавна</title>
+        </circle>
         <circle cx={map.spawnB.x} cy={map.spawnB.y} r={4000} fill="#3b2317" stroke="#ff9d5c" strokeWidth="700" />
         {units.map((unit, index) => {
           const creature = creaturesById.get(unit.creatureId);
-          const x = unit.x === 0 && unit.y === 0 ? defaultPosition(index, map).x : unit.x;
-          const y = unit.x === 0 && unit.y === 0 ? defaultPosition(index, map).y : unit.y;
+          const x = unit.x === 0 && unit.y === 0 ? defaultPosition(index, map, hivePosition).x : unit.x;
+          const y = unit.x === 0 && unit.y === 0 ? defaultPosition(index, map, hivePosition).y : unit.y;
           const radius = Math.max(1200, creature?.stats.radiusMm ?? 500);
           return (
             <circle
@@ -454,11 +542,15 @@ const templateLabels: Record<string, string> = {
   Harvester: "Сборщик"
 };
 
-function defaultPosition(index: number, map: MapDefinition): { x: number; y: number } {
+function defaultPosition(
+  index: number,
+  map: MapDefinition,
+  hivePosition: { x: number; y: number }
+): { x: number; y: number } {
   const column = index % 6;
   const row = Math.floor(index / 6);
   return {
-    x: Math.min(map.widthMm - 1000, Math.max(1000, map.spawnA.x + 4000 + column * 2500)),
-    y: Math.min(map.heightMm - 1000, Math.max(1000, map.spawnA.y + (row - 2) * 3000))
+    x: Math.min(map.widthMm - 1000, Math.max(1000, hivePosition.x + 4000 + column * 2500)),
+    y: Math.min(map.heightMm - 1000, Math.max(1000, hivePosition.y + (row - 2) * 3000))
   };
 }

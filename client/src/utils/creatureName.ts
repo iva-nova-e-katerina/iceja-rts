@@ -1,3 +1,5 @@
+import { t } from "../i18n";
+
 const storageKey = "iceja.creatureNameSequenceV2";
 let localSequence = 0;
 
@@ -20,6 +22,7 @@ export function nextCreatureName(base: string): string {
     localSequence = sequence;
   }
   const suffix = String(sequence).padStart(3, "0");
-  const label = base.trim().slice(0, Math.max(1, 23 - suffix.length)) || "Тварь";
+  const localizedBase = t(base);
+  const label = localizedBase.trim().slice(0, Math.max(1, 23 - suffix.length)) || t("Тварь");
   return `${label} ${suffix}`;
 }

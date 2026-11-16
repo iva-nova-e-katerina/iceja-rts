@@ -58,6 +58,18 @@ class BotArmyBuilderTest {
     }
 
     @Test
+    fun differentSeedsProduceDifferentCompositions() {
+        val playerUnits = List(8) { placement(if (it % 2 == 0) "Scout" else "Tank") }
+        val first = builder.build(playerUnits, seed = 1L)
+        val second = builder.build(playerUnits, seed = 2L)
+
+        assertTrue(
+            first.map { it.genome.name } != second.map { it.genome.name },
+            "random seed should vary the bot composition"
+        )
+    }
+
+    @Test
     fun emptyArmyProducesEmptyBotArmy() {
         assertEquals(emptyList(), builder.build(emptyList()))
     }
