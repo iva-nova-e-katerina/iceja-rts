@@ -126,15 +126,18 @@ object BehaviorEngine {
                     return attackDecision(target, "SCOUT_POTSHOT")
                 }
             }
-            return AiDecision(
-                mode = "SURVIVE",
-                reason = "SCOUT_EVADE",
-                targetId = 0,
-                moveTarget = Vec2(ownHive.x, ownHive.y),
-                attackTargetId = 0,
-                attackHive = false,
-                fleeFrom = Vec2(target.x, target.y)
-            )
+            if (targetDistance < 8_000) {
+                return AiDecision(
+                    mode = "SURVIVE",
+                    reason = "SCOUT_EVADE",
+                    targetId = 0,
+                    moveTarget = Vec2(ownHive.x, ownHive.y),
+                    attackTargetId = 0,
+                    attackHive = false,
+                    fleeFrom = Vec2(target.x, target.y)
+                )
+            }
+            return patrolDecision(creature, ownHive, enemyHive, tick)
         }
 
         if (preset.id == "SKIRMISHER" && target != null) {

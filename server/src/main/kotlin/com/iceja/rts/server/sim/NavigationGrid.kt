@@ -10,6 +10,7 @@ class NavigationGrid(
     private val width: Int = mapDefinition.widthMm / cellSizeMm
     private val height: Int = mapDefinition.heightMm / cellSizeMm
     private val blocked: BooleanArray = BooleanArray(width * height)
+    private val DIRECTIONS_8 = listOf(1 to 0, -1 to 0, 0 to 1, 0 to -1, 1 to 1, 1 to -1, -1 to 1, -1 to -1)
 
     init {
         mapDefinition.obstacles.forEach { obstacle ->
@@ -117,7 +118,13 @@ class NavigationGrid(
         }
     }
 
-    fun nextExplorationPoint(startX: Int, startY: Int, visited: MutableSet<Int>): Vec2? {
+    fun nextExplorationPoint(
+        startX: Int,
+        startY: Int,
+        visited: MutableSet<Int>,
+        reserved: List<Vec2> = emptyList(),
+        minJumpMm: Int = 40_000
+    ): Vec2? {
         val stride = 10_000
         val columns = (mapDefinition.widthMm + stride - 1) / stride
         val rows = (mapDefinition.heightMm + stride - 1) / stride
@@ -126,13 +133,22 @@ class NavigationGrid(
         }
         val startColumn = (startX / stride).coerceIn(0, columns - 1)
         val startRow = (startY / stride).coerceIn(0, rows - 1)
-        val startKey = startRow * columns + startColumn
+        val freeStart = nearestFreeCell(startColumn, startRow) ?: return null
+        val freeWorldX = freeStart % width * cellSizeMm + cellSizeMm / 2
+        val freeWorldY = freeStart / width * cellSizeMm + cellSizeMm / 2
+        val startKey = (freeWorldY / stride).coerceIn(0, rows - 1) * columns +
+            (freeWorldX / stride).coerceIn(0, columns - 1)
         visited += startKey
         val seen = BooleanArray(columns * rows)
         seen[startKey] = true
         val queue = java.util.ArrayDeque<Int>()
         queue.add(startKey)
-        val directions = listOf(1 to 0, -1 to 0, 0 to 1, 0 to -1, 1 to 1, 1 to -1, -1 to 1, -1 to -1)
+        var bestDistance = Long.MAX_VALUE
+        var bestKey = -1
+        var fallbackDistance = -1L
+        var fallbackKey = -1
+        val minJumpSq = minJumpMm.toLong() * minJumpMm
+        val reservedDistanceSq = 18_000L * 18_000
         while (queue.isNotEmpty()) {
             val key = queue.removeFirst()
             val column = key % columns
@@ -140,25 +156,48 @@ class NavigationGrid(
             if (key != startKey && !visited.contains(key)) {
                 val centerX = (column * stride + stride / 2).coerceIn(1_000, mapDefinition.widthMm - 1_000)
                 val centerY = (row * stride + stride / 2).coerceIn(1_000, mapDefinition.heightMm - 1_000)
-                if (!isBlockedAt(centerX, centerY)) {
-                    visited += key
-                    return Vec2(centerX, centerY)
+                val distance = IntegerMath.distanceSq(startX, startY, centerX, centerY)
+                val nearReserved = reserved.any {
+                    IntegerMath.distanceSq(centerX, centerY, it.x, it.y) < reservedDistanceSq
+                }
+                if (!nearReserved) {
+                    if (distance >= minJumpSq && distance < bestDistance) {
+                        bestDistance = distance
+                        bestKey = key
+                    }
+                    if (distance > fallbackDistance) {
+                        fallbackDistance = distance
+                        fallbackKey = key
+                    }
                 }
             }
-            directions.forEach { (dx, dy) ->
+            for ((dx, dy) in DIRECTIONS_8) {
                 val nextColumn = column + dx
                 val nextRow = row + dy
                 if (nextColumn !in 0 until columns || nextRow !in 0 until rows) {
-                    return@forEach
+                    continue
                 }
                 val nextKey = nextRow * columns + nextColumn
-                if (!seen[nextKey]) {
-                    seen[nextKey] = true
-                    queue.add(nextKey)
+                if (seen[nextKey] || blocked[nextKey]) {
+                    continue
                 }
+                seen[nextKey] = true
+                queue.add(nextKey)
             }
         }
-        return null
+        if (bestKey == -1) {
+            bestKey = fallbackKey
+        }
+        if (bestKey == -1) {
+            return null
+        }
+        visited += bestKey
+        val bestColumn = bestKey % columns
+        val bestRow = bestKey / columns
+        return Vec2(
+            (bestColumn * stride + stride / 2).coerceIn(1_000, mapDefinition.widthMm - 1_000),
+            (bestRow * stride + stride / 2).coerceIn(1_000, mapDefinition.heightMm - 1_000)
+        )
     }
 
     fun isBlockedAt(worldX: Int, worldY: Int): Boolean {

@@ -84,6 +84,7 @@ class Creature(
     var fleeFromX: Int = x
     var fleeFromY: Int = y
     var attackCooldownTicks: Int = 0
+    val weaponCooldowns: IntArray = IntArray(stats.weapons.size)
     var energyCarryMilli: Int = 0
     var starvationTicks: Int = 0
     var stunTicks: Int = 0
@@ -104,6 +105,9 @@ class Creature(
     val scoutVisitedCells: MutableSet<Int> = mutableSetOf()
     var scoutTargetX: Int = 0
     var scoutTargetY: Int = 0
+    var scoutStuckTicks: Int = 0
+    var scoutLastX: Int = 0
+    var scoutLastY: Int = 0
     var lastAttackerId: Int = 0
     var lastAttackerX: Int = 0
     var lastAttackerY: Int = 0
@@ -136,6 +140,7 @@ class Projectile(
     val ownerId: Int,
     val sourceId: Int,
     val targetId: Int,
+    val weaponId: String,
     var x: Int,
     var y: Int,
     val speedMmPerTick: Int,
@@ -227,7 +232,8 @@ data class ProjectileSnapshot(
     val y: Int,
     val angle: Int,
     val kind: Int,
-    val ttl: Int
+    val ttl: Int,
+    val weaponId: String
 )
 
 @Serializable

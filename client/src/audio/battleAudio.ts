@@ -341,8 +341,9 @@ export class BattleAudio {
         this.noise(0.08, 0.055, "highpass", 2100, pan, 0.03);
         break;
       case "ELECTROARC":
-        this.tone("square", 1700 * variation, 310, 0.14, 0.09, 0, pan, 0.04);
-        this.noise(0.12, 0.07, "highpass", 3000, pan, 0.03);
+        this.tone("square", 2100 * variation, 260, 0.16, 0.12, 0, pan, 0.05);
+        this.tone("sawtooth", 1200 * variation, 180, 0.2, 0.06, 0.03, pan, 0.04);
+        this.noise(0.16, 0.08, "highpass", 3400, pan, 0.04);
         break;
       default:
         this.tone("sawtooth", 1050 * variation, 320 * variation, 0.11, 0.085, 0, pan, 0.05);

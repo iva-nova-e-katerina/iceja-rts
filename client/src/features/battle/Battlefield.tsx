@@ -6,6 +6,7 @@ import type {
   EntitySnapshot,
   GenomeSummary,
   MapDefinition,
+  ProjectileSnapshot,
   SimEvent,
   Snapshot
 } from "../../types";
@@ -512,19 +513,7 @@ export default function Battlefield({
     }
 
     snapshot.projectiles.forEach((projectile) => {
-      const color = projectile.kind === 1 ? 0xfff1a8 : 0x6f8c93;
-      const angle = (projectile.angle / 65_536) * Math.PI * 2;
-      const dirX = Math.cos(angle);
-      const dirY = Math.sin(angle);
-      const trail = new Graphics()
-        .moveTo(projectile.x - dirX * 900, projectile.y - dirY * 900)
-        .lineTo(projectile.x, projectile.y)
-        .stroke({ width: 180, color, alpha: 0.45 });
-      const bullet = new Graphics()
-        .circle(projectile.x, projectile.y, 320)
-        .fill(color)
-        .stroke({ width: 100, color: 0x071012 });
-      projectiles.addChild(trail, bullet);
+      drawProjectile(projectiles, projectile);
     });
 
     appRef.current?.renderer.render(appRef.current.stage);
@@ -557,6 +546,8 @@ export default function Battlefield({
           spawnImpact(layer, event, effectTimersRef.current);
         } else if (event.type === "TELEPATHY" || event.type === "HIVE_FOUND") {
           spawnTelepathy(layer, event, snapshotRef.current, effectTimersRef.current);
+        } else if (event.type === "ATTACK") {
+          spawnWeaponAttack(layer, event, snapshotRef.current, worldRef.current?.scale.x ?? 0.004);
         }
       }
     });
@@ -645,6 +636,324 @@ function spawnTelepathy(
     }
   };
   requestAnimationFrame(fadeLink);
+}
+
+function weaponColor(weaponId: string): number {
+  switch (weaponId) {
+    case "SPINE":
+      return 0xe8fbff;
+    case "ACIDSPIT":
+    case "ACIDGLAND":
+      return 0x9cff6a;
+    case "SPOREMORTAR":
+      return 0xd6b45e;
+    case "ELECTRO":
+    case "ELECTROARC":
+      return 0x7cf7ff;
+    case "HARPOON":
+      return 0xc7d6da;
+    case "CLAWS":
+      return 0xff9d7a;
+    case "BONEHAMMER":
+      return 0xffe0a0;
+    case "VENOMFANG":
+      return 0xb6ff7a;
+    case "SPIKETAIL":
+      return 0xe0c38a;
+    default:
+      return 0xffd166;
+  }
+}
+
+function drawProjectile(layer: Container, projectile: ProjectileSnapshot) {
+  const color = weaponColor(projectile.weaponId);
+  const angle = (projectile.angle / 65_536) * Math.PI * 2;
+  const dirX = Math.cos(angle);
+  const dirY = Math.sin(angle);
+  const perpX = -dirY;
+  const perpY = dirX;
+  const backX = projectile.x - dirX * 2_000;
+  const backY = projectile.y - dirY * 2_000;
+  const g = new Graphics();
+
+  switch (projectile.weaponId) {
+    case "SPINE":
+      g.moveTo(backX, backY)
+        .lineTo(projectile.x + dirX * 420, projectile.y + dirY * 420)
+        .stroke({ width: 110, color, alpha: 0.9 });
+      g.moveTo(projectile.x - dirX * 500 + perpX * 240, projectile.y - dirY * 500 + perpY * 240)
+        .lineTo(projectile.x + dirX * 280, projectile.y + dirY * 280)
+        .lineTo(projectile.x - dirX * 500 - perpX * 240, projectile.y - dirY * 500 - perpY * 240)
+        .closePath()
+        .fill(color);
+      break;
+    case "ACIDSPIT":
+      g.moveTo(backX, backY)
+        .lineTo(projectile.x, projectile.y)
+        .stroke({ width: 280, color, alpha: 0.35 });
+      g.circle(projectile.x, projectile.y, 360)
+        .fill({ color, alpha: 0.95 })
+        .stroke({ width: 120, color: 0x365b24, alpha: 0.8 });
+      g.circle(projectile.x - dirX * 700 + perpX * 180, projectile.y - dirY * 700 + perpY * 180, 120)
+        .fill({ color: 0xc5ff83, alpha: 0.55 });
+      break;
+    case "SPOREMORTAR":
+      g.moveTo(backX, backY)
+        .lineTo(projectile.x, projectile.y)
+        .stroke({ width: 500, color: 0x6d5b38, alpha: 0.32 });
+      g.circle(projectile.x, projectile.y, 520)
+        .fill({ color: 0xa9874d, alpha: 0.95 })
+        .stroke({ width: 140, color: 0x5b4324, alpha: 0.8 });
+      g.circle(projectile.x + perpX * 260, projectile.y + perpY * 260, 180)
+        .fill({ color, alpha: 0.45 });
+      break;
+    case "ELECTROARC":
+      g.moveTo(backX, backY)
+        .lineTo(projectile.x - dirX * 900 + perpX * 120, projectile.y - dirY * 900 + perpY * 120)
+        .lineTo(projectile.x - dirX * 450, projectile.y - dirY * 450)
+        .lineTo(projectile.x, projectile.y)
+        .stroke({ width: 180, color, alpha: 0.75 });
+      g.circle(projectile.x, projectile.y, 300)
+        .fill(0xe9ffff)
+        .stroke({ width: 110, color, alpha: 0.9 });
+      break;
+    case "HARPOON":
+      g.moveTo(backX - dirX * 1_200, backY - dirY * 1_200)
+        .lineTo(projectile.x, projectile.y)
+        .stroke({ width: 120, color: 0x8f9d9f, alpha: 0.85 });
+      g.moveTo(projectile.x, projectile.y)
+        .lineTo(projectile.x - dirX * 700 + perpX * 260, projectile.y - dirY * 700 + perpY * 260)
+        .lineTo(projectile.x - dirX * 700 - perpX * 260, projectile.y - dirY * 700 - perpY * 260)
+        .closePath()
+        .fill(color);
+      break;
+    default:
+      g.moveTo(backX, backY)
+        .lineTo(projectile.x, projectile.y)
+        .stroke({ width: 180, color, alpha: 0.45 });
+      g.circle(projectile.x, projectile.y, 320)
+        .fill(color)
+        .stroke({ width: 100, color: 0x071012 });
+      break;
+  }
+  layer.addChild(g);
+}
+
+function spawnWeaponAttack(
+  layer: Container,
+  event: SimEvent,
+  snapshot: Snapshot | null,
+  sceneScale: number
+) {
+  const [kind, weaponId = ""] = event.text.split(":");
+  const source = snapshot?.entities.find((entity) => entity.id === event.sourceId);
+  const target =
+    snapshot?.entities.find((entity) => entity.id === event.targetId) ??
+    snapshot?.hives.find((hive) => hive.id === event.targetId);
+  if (source === undefined || target === undefined) {
+    return;
+  }
+  if (kind === "RANGED") {
+    spawnMuzzleFlash(layer, source, target, weaponId, sceneScale);
+    if (weaponId === "ELECTROARC") {
+      spawnElectricArc(layer, event, snapshot, sceneScale);
+    }
+    return;
+  }
+  if (kind !== "MELEE") {
+    return;
+  }
+  if (weaponId === "ELECTRO") {
+    spawnElectricArc(layer, event, snapshot, sceneScale);
+    return;
+  }
+  spawnMeleeStrike(layer, source, target, weaponId);
+}
+
+function spawnMuzzleFlash(
+  layer: Container,
+  source: EntitySnapshot,
+  target: EntitySnapshot | { x: number; y: number },
+  weaponId: string,
+  sceneScale: number
+) {
+  const pixelWidth = 3 / Math.max(0.0005, sceneScale);
+  const color = weaponColor(weaponId);
+  const angle = Math.atan2(target.y - source.y, target.x - source.x);
+  const dirX = Math.cos(angle);
+  const dirY = Math.sin(angle);
+  const perpX = -dirY;
+  const perpY = dirX;
+  const g = new Graphics();
+  if (weaponId === "SPOREMORTAR") {
+    g.circle(source.x + dirX * 1_200, source.y + dirY * 1_200, 900)
+      .fill({ color: 0x6d5b38, alpha: 0.5 });
+  } else if (weaponId === "ETHER") {
+    g.circle(source.x, source.y, 500).fill(color);
+  } else {
+    g.moveTo(source.x + dirX * 300, source.y + dirY * 300)
+      .lineTo(source.x + dirX * 1_800, source.y + dirY * 1_800)
+      .stroke({ width: Math.max(150, pixelWidth), color, alpha: 0.9 });
+    g.circle(source.x + dirX * 1_000, source.y + dirY * 1_000, 300)
+      .fill({ color, alpha: 0.8 });
+  }
+  if (weaponId === "ACIDSPIT" || weaponId === "ACIDGLAND") {
+    g.circle(source.x + dirX * 700 + perpX * 220, source.y + dirY * 700 + perpY * 220, 150)
+      .fill({ color: 0xd4ff9c, alpha: 0.7 });
+  }
+  fadeGraphic(layer, g, 220);
+}
+
+function spawnMeleeStrike(
+  layer: Container,
+  source: EntitySnapshot,
+  target: EntitySnapshot | { x: number; y: number },
+  weaponId: string
+) {
+  const color = weaponColor(weaponId);
+  const angle = Math.atan2(target.y - source.y, target.x - source.x);
+  const dirX = Math.cos(angle);
+  const dirY = Math.sin(angle);
+  const perpX = -dirY;
+  const perpY = dirX;
+  const g = new Graphics();
+
+  if (weaponId === "BONEHAMMER") {
+    g.circle(target.x, target.y, 1_500)
+      .stroke({ width: 320, color, alpha: 0.8 });
+    g.moveTo(source.x, source.y)
+      .lineTo(target.x, target.y)
+      .stroke({ width: 260, color, alpha: 0.45 });
+  } else if (weaponId === "CLAWS") {
+    for (let index = -1; index <= 1; index += 1) {
+      g.moveTo(target.x - dirX * 1_300 + perpX * index * 500, target.y - dirY * 1_300 + perpY * index * 500)
+        .lineTo(target.x + dirX * 1_300 + perpX * index * 500, target.y + dirY * 1_300 + perpY * index * 500)
+        .stroke({ width: 180, color, alpha: 0.85 });
+    }
+  } else if (weaponId === "SPIKETAIL") {
+    for (let index = -2; index <= 2; index += 1) {
+      g.moveTo(source.x + perpX * index * 500, source.y + perpY * index * 500)
+        .lineTo(target.x + perpX * index * 700, target.y + perpY * index * 700)
+        .stroke({ width: 190, color, alpha: 0.8 });
+    }
+  } else if (weaponId === "VENOMFANG" || weaponId === "ACIDGLAND") {
+    g.circle(target.x, target.y, 1_000).fill({ color, alpha: 0.22 });
+    for (let index = -2; index <= 2; index += 1) {
+      g.circle(target.x + perpX * index * 430 - dirX * 300, target.y + perpY * index * 430 - dirY * 300, 170)
+        .fill({ color, alpha: 0.7 });
+    }
+  } else {
+    const centerX = source.x + dirX * 1_100;
+    const centerY = source.y + dirY * 1_100;
+    g.moveTo(centerX + perpX * 700, centerY + perpY * 700)
+      .lineTo(target.x, target.y)
+      .lineTo(centerX - perpX * 700, centerY - perpY * 700)
+      .stroke({ width: 240, color, alpha: 0.85 });
+  }
+  fadeGraphic(layer, g, 240);
+}
+
+function fadeGraphic(layer: Container, graphic: Graphics, duration: number) {
+  layer.addChild(graphic);
+  const startedAt = performance.now();
+  const fade = () => {
+    const progress = Math.min(1, (performance.now() - startedAt) / duration);
+    graphic.alpha = 1 - progress;
+    if (progress < 1 && graphic.parent !== null) {
+      requestAnimationFrame(fade);
+    } else {
+      graphic.removeFromParent();
+      graphic.destroy();
+    }
+  };
+  requestAnimationFrame(fade);
+}
+
+function spawnElectricArc(
+  layer: Container,
+  event: SimEvent,
+  snapshot: Snapshot | null,
+  sceneScale: number
+) {
+  const source = snapshot?.entities.find((entity) => entity.id === event.sourceId);
+  const target =
+    snapshot?.entities.find((entity) => entity.id === event.targetId) ??
+    snapshot?.hives.find((hive) => hive.id === event.targetId);
+  if (source === undefined || target === undefined) {
+    return;
+  }
+  const scale = Math.max(0.0005, sceneScale);
+  const glowWidth = 26 / scale;
+  const midWidth = 10 / scale;
+  const coreWidth = 3.2 / scale;
+  const flashRadius = Math.min(4_000, Math.max(900, 7 / scale));
+  const arcLength = Math.max(1, Math.hypot(target.x - source.x, target.y - source.y));
+  const normalX = -(target.y - source.y) / arcLength;
+  const normalY = (target.x - source.x) / arcLength;
+
+  for (let branch = 0; branch < 4; branch += 1) {
+    const segments = 13 + branch * 3;
+    const points: Array<{ x: number; y: number }> = [];
+    for (let index = 0; index <= segments; index += 1) {
+      const progress = index / segments;
+      const x = source.x + (target.x - source.x) * progress;
+      const y = source.y + (target.y - source.y) * progress;
+      const jitter = Math.min(4_000, Math.max(350, 12 / scale));
+      const wave = (Math.random() - 0.5) * jitter * (branch === 0 ? 1 : 0.7);
+      points.push({ x: x + normalX * wave, y: y + normalY * wave });
+    }
+    const glow = new Graphics();
+    const mid = new Graphics();
+    const core = new Graphics();
+    for (const line of [glow, mid, core]) {
+      line.moveTo(points[0].x, points[0].y);
+      points.slice(1).forEach((point) => line.lineTo(point.x, point.y));
+    }
+    glow.stroke({ width: glowWidth, color: 0x2fd7ff, alpha: 0.18 });
+    mid.stroke({ width: midWidth, color: 0x69f5ff, alpha: 0.6 });
+    core.stroke({ width: coreWidth, color: 0xffffff, alpha: 1 });
+    layer.addChild(glow, mid, core);
+    const startedAt = performance.now();
+    const fade = () => {
+      const progress = Math.min(1, (performance.now() - startedAt) / 520);
+      glow.alpha = (1 - progress) * 0.7;
+      mid.alpha = 1 - progress;
+      core.alpha = 1 - progress;
+      if (progress < 1 && core.parent !== null) {
+        requestAnimationFrame(fade);
+      } else {
+        [glow, mid, core].forEach((line) => {
+          line.removeFromParent();
+          line.destroy();
+        });
+      }
+    };
+    requestAnimationFrame(fade);
+  }
+
+  const sourceFlash = new Graphics()
+    .circle(source.x, source.y, flashRadius * 0.65)
+    .fill({ color: 0x7cf7ff, alpha: 0.55 })
+    .stroke({ width: coreWidth * 2, color: 0xffffff, alpha: 0.9 });
+  const targetFlash = new Graphics()
+    .circle(target.x, target.y, flashRadius)
+    .fill({ color: 0x7cf7ff, alpha: 0.32 })
+    .stroke({ width: midWidth, color: 0xffffff, alpha: 0.95 });
+  const flash = new Container();
+  flash.addChild(sourceFlash, targetFlash);
+  layer.addChild(flash);
+  const flashStartedAt = performance.now();
+  const fadeFlash = () => {
+    const progress = Math.min(1, (performance.now() - flashStartedAt) / 480);
+    flash.alpha = 1 - progress;
+    if (progress < 1 && flash.parent !== null) {
+      requestAnimationFrame(fadeFlash);
+    } else {
+      flash.removeFromParent();
+      flash.destroy({ children: true });
+    }
+  };
+  requestAnimationFrame(fadeFlash);
 }
 
 function spawnImpact(layer: Container, event: SimEvent, timers: number[]) {

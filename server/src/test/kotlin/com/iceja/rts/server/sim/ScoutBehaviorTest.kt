@@ -28,6 +28,30 @@ class ScoutBehaviorTest {
         assertEquals("RECON", unit.aiReason)
         assertTrue(unit.scoutVisitedCells.isNotEmpty())
         assertTrue(unit.desiredX != unit.x || unit.desiredY != unit.y)
+        assertTrue(
+            IntegerMath.distance(40_000, 96_000, unit.desiredX, unit.desiredY) > 40_000,
+            "scout should choose a far exploration target"
+        )
+    }
+
+    @Test
+    fun scoutsPickDifferentExplorationTargets() {
+        val simulation = simulation(
+            alpha = listOf(
+                placement(scout, 28_000, 96_000),
+                placement(scout, 30_000, 96_000),
+                placement(scout, 32_000, 96_000)
+            ),
+            beta = listOf(placement(brawler, 180_000, 20_000))
+        )
+
+        simulation.step()
+
+        val targets = simulation.creatures()
+            .filter { it.ownerId == 0 }
+            .map { it.scoutTargetX to it.scoutTargetY }
+            .toSet()
+        assertEquals(3, targets.size, "each scout should have its own exploration target: $targets")
     }
 
     @Test
@@ -92,6 +116,22 @@ class ScoutBehaviorTest {
 
         assertTrue(events.any { it.type == "ATTACK" && it.sourceId == 3 && it.targetId == enemyHive.id })
         assertTrue(enemyHive.hp < startHp)
+    }
+
+    @Test
+    fun scoutKeepsReconWhileDistantEnemyIsVisible() {
+        val simulation = simulation(
+            alpha = listOf(placement(scout, 60_000, 96_000)),
+            beta = listOf(placement(brawler, 78_000, 96_000))
+        )
+
+        repeat(12) {
+            simulation.step()
+        }
+
+        val unit = simulation.creatures().first { it.ownerId == 0 }
+        assertEquals("SCOUT", unit.aiMode)
+        assertEquals("RECON", unit.aiReason)
     }
 
     private fun simulation(alpha: List<ArmyPlacement>, beta: List<ArmyPlacement>): Simulation =

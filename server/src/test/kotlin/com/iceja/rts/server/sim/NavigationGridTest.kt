@@ -26,6 +26,27 @@ class NavigationGridTest {
     }
 
     @Test
+    fun explorationDoesNotCampInMapCorners() {
+        val map = GameCatalog.map("duel-arena")
+        val navigation = NavigationGrid(map)
+        val visited = mutableSetOf<Int>()
+        var x = 28_000
+        var y = 96_000
+        val targets = mutableListOf<Vec2>()
+        repeat(12) {
+            val target = navigation.nextExplorationPoint(x, y, visited)
+            assertNotNull(target)
+            targets += target
+            x = target.x
+            y = target.y
+        }
+
+        val cornerCampers = targets.count { it.x > 170_000 && it.y > 170_000 }
+        assertTrue(cornerCampers < 3, "scouts should not repeatedly camp in the bottom-right corner: $targets")
+        assertTrue(targets.any { it.x > 100_000 }, "exploration should reach the right half of the map: $targets")
+    }
+
+    @Test
     fun openMapReturnsDirectPath() {
         val navigation = NavigationGrid(GameCatalog.map("duel-arena"))
         val path = navigation.findPath(10_000, 64_000, 118_000, 64_000)

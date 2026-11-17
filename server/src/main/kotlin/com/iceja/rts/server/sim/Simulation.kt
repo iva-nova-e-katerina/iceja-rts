@@ -181,7 +181,8 @@ class Simulation(
                 y = projectile.y,
                 angle = projectile.angle,
                 kind = if (projectile.hit) 1 else 0,
-                ttl = projectile.ttlTicks.coerceAtLeast(0)
+                ttl = projectile.ttlTicks.coerceAtLeast(0),
+                weaponId = projectile.weaponId
             )
         }
         val corpseSnapshots = corpses.map { corpse ->
@@ -263,6 +264,7 @@ class Simulation(
             mix(creature.hp.toLong())
             mix(creature.energy.toLong())
             mix(creature.attackCooldownTicks.toLong())
+            creature.weaponCooldowns.forEach { cooldown -> mix(cooldown.toLong()) }
             mix(creature.state.code.toLong())
             mix(creature.attackTargetId.toLong())
         }
@@ -591,7 +593,7 @@ class Simulation(
                     fleeFrom = null,
                     nodeId = "scout:fear"
                 )
-                scout && visibleEnemies.isEmpty() && effectiveDecision.mode == "PATROL" -> {
+                scout && effectiveDecision.mode == "PATROL" -> {
                     val nextPoint = nextScoutPoint(creature)
                     if (nextPoint == null) {
                         effectiveDecision
@@ -818,25 +820,61 @@ class Simulation(
 
     private fun nextScoutPoint(creature: Creature): Vec2? {
         if (creature.scoutTargetX != 0 || creature.scoutTargetY != 0) {
+            if (IntegerMath.distanceSq(creature.x, creature.y, creature.scoutLastX, creature.scoutLastY) < 500L * 500) {
+                creature.scoutStuckTicks += 1
+            } else {
+                creature.scoutStuckTicks = 0
+                creature.scoutLastX = creature.x
+                creature.scoutLastY = creature.y
+            }
             val distanceSq = IntegerMath.distanceSq(
                 creature.x,
                 creature.y,
                 creature.scoutTargetX,
                 creature.scoutTargetY
             )
-            if (distanceSq > 1_500L * 1_500) {
+            if (creature.scoutStuckTicks > 90) {
+                creature.scoutStuckTicks = 0
+                creature.scoutTargetX = 0
+                creature.scoutTargetY = 0
+            } else if (distanceSq > 1_500L * 1_500) {
                 return Vec2(creature.scoutTargetX, creature.scoutTargetY)
+            } else {
+                creature.scoutStuckTicks = 0
+                creature.scoutTargetX = 0
+                creature.scoutTargetY = 0
             }
-            creature.scoutTargetX = 0
-            creature.scoutTargetY = 0
         }
-        val next = navigation.nextExplorationPoint(
+        val reserved = creatures.asSequence()
+            .filter {
+                it.alive && it.id != creature.id && it.ownerId == creature.ownerId && isScout(it) &&
+                    (it.scoutTargetX != 0 || it.scoutTargetY != 0)
+            }
+            .map { Vec2(it.scoutTargetX, it.scoutTargetY) }
+            .toList()
+        var next = navigation.nextExplorationPoint(
             startX = creature.x,
             startY = creature.y,
-            visited = creature.scoutVisitedCells
-        ) ?: return null
+            visited = creature.scoutVisitedCells,
+            reserved = reserved
+        )
+        if (next == null) {
+            creature.scoutVisitedCells.clear()
+            next = navigation.nextExplorationPoint(
+                startX = creature.x,
+                startY = creature.y,
+                visited = creature.scoutVisitedCells,
+                reserved = reserved
+            )
+        }
+        if (next == null) {
+            return null
+        }
         creature.scoutTargetX = next.x
         creature.scoutTargetY = next.y
+        creature.scoutStuckTicks = 0
+        creature.scoutLastX = creature.x
+        creature.scoutLastY = creature.y
         return next
     }
 
@@ -869,6 +907,11 @@ class Simulation(
         creatures.filter { it.alive }.forEach { creature ->
             if (creature.attackCooldownTicks > 0) {
                 creature.attackCooldownTicks -= 1
+            }
+            creature.weaponCooldowns.indices.forEach { index ->
+                if (creature.weaponCooldowns[index] > 0) {
+                    creature.weaponCooldowns[index] -= 1
+                }
             }
             if (creature.stats.speedMmPerTick <= 0) {
                 creature.state = EntityState.IDLE
@@ -1174,7 +1217,7 @@ class Simulation(
 
     private fun resolveCombat() {
         creatures.filter { it.alive }.forEach { creature ->
-            if (creature.attackTargetId == 0 || creature.attackCooldownTicks > 0 || creature.energy <= 0) {
+            if (creature.attackTargetId == 0 || creature.energy <= 0) {
                 return@forEach
             }
             if (creature.attackHive) {
@@ -1183,39 +1226,59 @@ class Simulation(
                     return@forEach
                 }
                 val distance = IntegerMath.distance(creature.x, creature.y, hive.x, hive.y)
-                val weapon = selectWeapon(creature, distance, hive.radiusMm) ?: return@forEach
-                creature.attackCooldownTicks = weapon.cooldownTicks
-                creature.energy = (creature.energy - 1).coerceAtLeast(0)
-                emit(
-                    "ATTACK",
-                    creature.id,
-                    hive.id,
-                    creature.x,
-                    creature.y,
-                    weapon.damage,
-                    if (weapon.ranged) "RANGED:${weapon.partId}" else "MELEE:${weapon.partId}"
-                )
-                fireWeapon(creature, weapon, hive.id, hive.x, hive.y, hive.radiusMm, true)
+                fireReadyWeapons(creature, distance, hive.radiusMm) { weapon ->
+                    emit(
+                        "ATTACK",
+                        creature.id,
+                        hive.id,
+                        creature.x,
+                        creature.y,
+                        weapon.damage,
+                        if (weapon.ranged) "RANGED:${weapon.partId}" else "MELEE:${weapon.partId}"
+                    )
+                    fireWeapon(creature, weapon, hive.id, hive.x, hive.y, hive.radiusMm, true)
+                }
             } else {
                 val target = creatureById(creature.attackTargetId) ?: return@forEach
                 if (!Vision.canSee(creature, target, navigation)) {
                     return@forEach
                 }
                 val distance = IntegerMath.distance(creature.x, creature.y, target.x, target.y)
-                val weapon = selectWeapon(creature, distance, target.stats.radiusMm) ?: return@forEach
-                creature.attackCooldownTicks = weapon.cooldownTicks
-                creature.energy = (creature.energy - 1).coerceAtLeast(0)
-                emit(
-                    "ATTACK",
-                    creature.id,
-                    target.id,
-                    creature.x,
-                    creature.y,
-                    weapon.damage,
-                    if (weapon.ranged) "RANGED:${weapon.partId}" else "MELEE:${weapon.partId}"
-                )
-                fireWeapon(creature, weapon, target.id, target.x, target.y, target.stats.radiusMm, false)
+                fireReadyWeapons(creature, distance, target.stats.radiusMm) { weapon ->
+                    emit(
+                        "ATTACK",
+                        creature.id,
+                        target.id,
+                        creature.x,
+                        creature.y,
+                        weapon.damage,
+                        if (weapon.ranged) "RANGED:${weapon.partId}" else "MELEE:${weapon.partId}"
+                    )
+                    fireWeapon(creature, weapon, target.id, target.x, target.y, target.stats.radiusMm, false)
+                }
             }
+        }
+    }
+
+    private fun fireReadyWeapons(
+        creature: Creature,
+        distance: Int,
+        targetRadius: Int,
+        fire: (WeaponStats) -> Unit
+    ) {
+        creature.stats.weapons.forEachIndexed { index, weapon ->
+            if (creature.energy <= 0) {
+                return
+            }
+            if (creature.weaponCooldowns.getOrElse(index) { 0 } > 0) {
+                return@forEachIndexed
+            }
+            if (distance > weapon.rangeMm + targetRadius) {
+                return@forEachIndexed
+            }
+            creature.weaponCooldowns[index] = weapon.cooldownTicks
+            creature.energy = (creature.energy - 1).coerceAtLeast(0)
+            fire(weapon)
         }
     }
 
@@ -1243,6 +1306,7 @@ class Simulation(
                 ownerId = source.ownerId,
                 sourceId = source.id,
                 targetId = targetId,
+                weaponId = weapon.partId,
                 x = source.x,
                 y = source.y,
                 speedMmPerTick = speed,
@@ -1277,14 +1341,6 @@ class Simulation(
             applyDot(target, weapon, source.id)
         }
     }
-
-    private fun selectWeapon(creature: Creature, distance: Int, targetRadius: Int): WeaponStats? =
-        creature.stats.weapons
-            .filter { weapon -> distance <= weapon.rangeMm + targetRadius }
-            .maxWithOrNull(
-                compareBy<WeaponStats> { it.damage }
-                    .thenBy { it.partId }
-            )
 
     private fun maxWeaponRange(creature: Creature): Int =
         creature.stats.weapons.maxOfOrNull { it.rangeMm } ?: 0

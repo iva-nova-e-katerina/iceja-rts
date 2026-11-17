@@ -458,6 +458,7 @@ export interface ProjectileSnapshot {
   angle: number;
   kind: number;
   ttl: number;
+  weaponId: string;
 }
 
 export interface ObjectiveSnapshot {
